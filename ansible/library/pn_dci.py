@@ -18,9 +18,9 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from ansible.module_utils.basic import AnsibleModule
 import shlex
 import time
+from ansible.module_utils.basic import AnsibleModule
 
 DOCUMENTATION = """
 ---
@@ -193,7 +193,7 @@ def run_cli(module, cli):
     :return: Output/Error or Success msg depending upon the response from cli.
     """
     cli = shlex.split(cli)
-    rc, out, err = module.run_command(cli)
+    out, err = module.run_command(cli)[1:]
     if out:
         return out
 
@@ -218,7 +218,7 @@ def auto_accept_eula(module):
     password = module.params['pn_clipassword']
     cli = ' /usr/bin/cli --quiet --skip-setup eula-show '
     cli = shlex.split(cli)
-    rc, out, err = module.run_command(cli)
+    out, err = module.run_command(cli)[1:]
 
     if err:
         cli = '/usr/bin/cli --quiet'
@@ -239,13 +239,14 @@ def update_switch_names(module, switch_name):
     """
     cli = pn_cli(module)
     cli += ' switch-setup-show format switch-name '
+
     if switch_name in run_cli(module, cli).split()[1]:
         return ' Switch name is same as hostname! '
-    else:
-        cli = pn_cli(module)
-        cli += ' switch-setup-modify switch-name ' + switch_name
-        run_cli(module, cli)
-        return ' Updated switch name to match hostname! '
+
+    cli = pn_cli(module)
+    cli += ' switch-setup-modify switch-name ' + switch_name
+    run_cli(module, cli)
+    return ' Updated switch name to match hostname! '
 
 
 def assign_inband_ip(module):
@@ -441,7 +442,7 @@ def join_fabric(module, switch_ip):
 
     cli += ' fabric-info format name no-show-headers'
     cli = shlex.split(cli)
-    rc, out, err = module.run_command(cli)
+    out, err = module.run_command(cli)[1:]
 
     if err:
         cli = clicopy
@@ -491,8 +492,8 @@ def create_vrouter(module, switch, bgp_as, router_id, bgp_nic_ip,
         run_cli(module, cli)
         CHANGED_FLAG.append(True)
         return ' %s: Created %s \n' % (switch, vrouter_name)
-    else:
-        return ' %s: %s already exists \n' % (switch, vrouter_name)
+
+    return ' %s: %s already exists \n' % (switch, vrouter_name)
 
 
 def get_l3_port(module, neighbor_name):
@@ -516,8 +517,8 @@ def get_l3_port(module, neighbor_name):
 
     if len(trunk_id) == 0 or trunk_id == 'Success':
         return ports[0]
-    else:
-        return trunk_id
+
+    return trunk_id
 
 
 def configure_loopback_interface(module, switch, router_id):
@@ -550,10 +551,9 @@ def configure_loopback_interface(module, switch, router_id):
         CHANGED_FLAG.append(True)
         return ' %s: Configured loopback interface with ip %s \n' % (switch,
                                                                      router_id)
-    else:
-        return ' %s: Loopback interface %s has been already configured \n' % (
-            switch, router_id
-        )
+    return ' %s: Loopback interface %s has been already configured \n' % (
+        switch, router_id
+    )
 
 
 def configure_ebgp_connections(module, switch, third_party_data, bgp_nic_ip):
@@ -666,10 +666,9 @@ def create_vlan(module, vlan_id, switch, scope):
             switch, vlan_id, scope
         )
 
-    else:
-        return ' %s: Vlan id %s with scope %s already exists \n' % (
-            switch, vlan_id, scope
-        )
+    return ' %s: Vlan id %s with scope %s already exists \n' % (
+        switch, vlan_id, scope
+    )
 
 
 def configure_ibgp_connection(module, switch, local_ip, remote_ip, remote_as):
@@ -783,9 +782,9 @@ def modify_vrouter(module, switch, vrrp_id):
         run_cli(module, cli)
         return ' %s: Assigned vrrp_id %s to %s \n' % (switch, vrrp_id,
                                                       vrouter_name)
-    else:
-        return ' %s: Vrrp-id %s already assigned to %s \n' % (switch, vrrp_id,
-                                                              vrouter_name)
+
+    return ' %s: Vrrp-id %s already assigned to %s \n' % (switch, vrrp_id,
+                                                          vrouter_name)
 
 
 def create_vrouter_interface(module, switch, vrrp_ip, vlan_id, vrrp_id,
@@ -915,10 +914,9 @@ def add_vrouter_interface_for_non_cluster_switch(module, vrrp_ip, switch,
             switch, gateway_ip, vrouter_name
         )
 
-    else:
-        return ' %s: Vrouter interface %s already exists on %s \n' % (
-            switch, gateway_ip, vrouter_name
-        )
+    return ' %s: Vrouter interface %s already exists on %s \n' % (
+        switch, gateway_ip, vrouter_name
+    )
 
 
 def configure_vrrp(module):
@@ -991,9 +989,9 @@ def add_vxlan_to_vlan(module, vlan_id, vxlan, switch):
                                                            vxlan)
         run_cli(module, cli)
         return ' %s: Added vxlan %s to vlan %s \n' % (switch, vxlan, vlan_id)
-    else:
-        return ' %s: Vxlan %s has been added to vlan %s \n' % (switch, vxlan,
-                                                               vlan_id)
+
+    return ' %s: Vxlan %s has been added to vlan %s \n' % (switch, vxlan,
+                                                           vlan_id)
 
 
 def get_vrouter_interface_ip(module, switch, vlan):
@@ -1054,8 +1052,8 @@ def create_tunnel(module, local_switch, tunnel_name, scope, local_ip, remote_ip,
                                                          tunnel_name)
         else:
             return ' %s: Could not create %s \n' % (local_switch, tunnel_name)
-    else:
-        return ' %s: %s already exists \n' % (local_switch, tunnel_name)
+
+    return ' %s: %s already exists \n' % (local_switch, tunnel_name)
 
 
 def add_vxlan_to_tunnel(module, vxlan, tunnel_name, switch):
@@ -1081,12 +1079,12 @@ def add_vxlan_to_tunnel(module, vxlan, tunnel_name, switch):
         if 'Success' in run_cli(module, cli):
             CHANGED_FLAG.append(True)
             return ' %s: Added vxlan %s to %s \n' % (switch, vxlan, tunnel_name)
-        else:
-            return ' %s: Could not add vxlan %s to %s \n' % (switch, vxlan,
-                                                             tunnel_name)
-    else:
-        return ' %s: vxlan %s already added to %s \n' % (switch, vxlan,
+
+        return ' %s: Could not add vxlan %s to %s \n' % (switch, vxlan,
                                                          tunnel_name)
+
+    return ' %s: vxlan %s already added to %s \n' % (switch, vxlan,
+                                                     tunnel_name)
 
 
 def configure_vxlan(module):
@@ -1441,4 +1439,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

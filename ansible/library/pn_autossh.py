@@ -18,10 +18,10 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from ansible.module_utils.basic import AnsibleModule
 import os
-import paramiko
 import shlex
+import paramiko
+from ansible.module_utils.basic import AnsibleModule
 
 DOCUMENTATION = """
 ---
@@ -85,11 +85,21 @@ changed:
 
 
 def deploy_key(sshkey, address, username, password, overwrite):
+    """
+    :param sshkey: The sshkey id
+    :param address: The address of the destination host
+    :param username: The user we will be connecting as
+    :param password: The password for the user
+    :param overwrite: Boolean, if enabled, deploy_key will overwite the
+        authorized keys in ~/.ssh/authorized_keys
+    :return: A string informing the caller that the keys were pushed to the host
+    """
+
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(address, username=username, password=password)
     client.exec_command('mkdir -p ~/.ssh/')
-    
+
     if overwrite is True:
         client.exec_command('echo "%s" > ~/.ssh/authorized_keys' % sshkey)
     else:
@@ -101,19 +111,25 @@ def deploy_key(sshkey, address, username, password, overwrite):
 
 
 def generate_key(path, module):
+    """
+    :param path: The path to the input keyfile
+    :param module: The module where the run_command function is located
+    :return: A string informing the caller that the keys were generated
+    """
+
     cmd = 'ssh-keygen -t rsa -f %s -q -N %s' % (path, '""')
     cmd = shlex.split(cmd)
-    rc, out, err = module.run_command(cmd)
-    
+    out, err = module.run_command(cmd)[1:]
+
     if out:
         return out
     if err:
         module.exit_json(
-          error='1',
-          failed=True,
-          stderr=err.strip(),
-          msg='Operation Failed: Could not generate keys!',
-          changed=False
+            error='1',
+            failed=True,
+            stderr=err.strip(),
+            msg='Operation Failed: Could not generate keys!',
+            changed=False
         )
     else:
         return 'SSH Keys generated on localhost \n'
@@ -139,7 +155,7 @@ def main():
 
     if not os.path.exists(filepath):
         message += generate_key(filepath, module)
-    
+
     filepath_pub = str(filepath) + '.pub'
     key = open(filepath_pub).read()
 
@@ -156,6 +172,6 @@ def main():
         changed=True
     )
 
-    
+
 if __name__ == '__main__':
     main()

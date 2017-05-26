@@ -19,7 +19,7 @@
 
 import subprocess
 import shlex
-
+from ansible.module_utils.basic import AnsibleModule
 
 def main():
     """ This section is for arguments parsing """
@@ -71,7 +71,6 @@ def main():
         )
 
 # AnsibleModule boilerplate
-from ansible.module_utils.basic import AnsibleModule
 
 if __name__ == '__main__':
     main()
