@@ -4,6 +4,7 @@ Unit testing for library file
 
 import unittest as ut
 import json
+import re
 import ansible.library.pn_ansible_lib as pn
 
 def json_out(input):
@@ -22,6 +23,8 @@ class Module():
         self.params = kwargs
         self.command_pass = True
 
+        self.clusters = [] # Used to test cluster management
+
     def exit_json(self, **kwargs):
         return json_out(kwargs)
 
@@ -33,6 +36,34 @@ class Module():
         Runs a command and either "passes" or "fails" based on how the 
         self.command_pass flag is set.
         """
+        command = ' '.join(command)
+        r = re.compile('[A-Za-z\-// ]* cluster-create name')
+        if r.match(command):
+            command = command.split()
+            self.clusters.append({
+                'cluster-name': command[-5],
+                'cluster-node-1': command[-3],
+                'cluster-node-2': command[-1]
+            })
+            return ('0', "Cluster %s created" % command[-5], 'no error')
+
+        r = re.compile('[A-Za-z\-// ]* cluster-delete name')
+        if r.match(command):
+            command = command.split()
+            for cluster in self.clusters:
+                if cluster['cluster-name'] == command[-1]:
+                    self.clusters.remove(cluster)
+                    return ('0', "Cluster %s removed" % command[-1], 'no error')
+            return ('0', "Cluster was not deleted", 'Error!')
+
+        r = re.compile('[A-Za-z\-// ]* cluster-show')
+        if r.match(command):
+            out = ""
+            for cluster in self.clusters:
+                out += cluster['cluster-name']
+            out += "\n"
+            return ('0', out, 'no error')
+        
         if self.command_pass:
             return ('0', "Success", 'no error')
         else:
@@ -47,9 +78,9 @@ class PN_ansible_lib_TEST(ut.TestCase):
 
         # Test with no prefix, and defined username and password
         mod = Module(pn_cliusername='pluribus', pn_clipassword='password')
-        cli = pn.PN_cli(mod, command='a-command')
+        cli = pn.PN_cli(mod)
         self.assertEqual(
-            cli.gen_command(),
+            cli.gen_command('a-command'),
             '/usr/bin/cli --quiet --user pluribus:password a-command'
         )
 
@@ -57,15 +88,15 @@ class PN_ansible_lib_TEST(ut.TestCase):
         cli.command = 'vrouter-create'
         cli.prefix = 'prefix'
         self.assertEqual(
-            cli.gen_command(),
+            cli.gen_command('vrouter-create'),
             'prefix vrouter-create'
         )
 
         # Test when username and password are not supplied
         mod = Module()
-        cli = pn.PN_cli(mod, command='a-command')
+        cli = pn.PN_cli(mod)
         self.assertEqual(
-            cli.gen_command(),
+            cli.gen_command('a-command'),
             '/usr/bin/cli --quiet a-command'
         )
 
@@ -73,9 +104,9 @@ class PN_ansible_lib_TEST(ut.TestCase):
     def test_PN_cli_send_command(self):
         # Test for a command passing
         mod = Module()
-        cli = pn.PN_cli(mod, command='a-command')
+        cli = pn.PN_cli(mod)
         self.assertEqual(
-            cli.send_command(), 'Success'
+            cli.send_command('a-command'), 'Success'
         )
 
         # Test for a command failing, outputs correct json
@@ -85,18 +116,18 @@ class PN_ansible_lib_TEST(ut.TestCase):
                 'failed': True,
                 'msg': 'Operation Failed: /usr/bin/cli --quiet a-command',
                 'stderr': 'Error!'}
-        self.assertEqual(cli.send_command(), json_out(out))
+        self.assertEqual(cli.send_command('a-command'), json_out(out))
 
 
     def test_PN_cli_check_command(self):
         mod = Module()
-        cli = pn.PN_cli(mod, command='a-command')
+        cli = pn.PN_cli(mod)
         
         # Check that it can find success
-        self.assertEqual(cli.check_command("Success"), True)
+        self.assertEqual(cli.check_command('a-command', "Success"), True)
 
         # Check that method does not send false positives
-        self.assertNotEqual(cli.check_command("Failure"), True)
+        self.assertNotEqual(cli.check_command('a-command', "Failure"), True)
 
         # If command isn't valid, then the call to send_command will call
         # exit_json and execution will end.
@@ -104,47 +135,53 @@ class PN_ansible_lib_TEST(ut.TestCase):
 
     def test_PN_cli_check_command_string(self):
         mod = Module()
-        cli = pn.PN_cli(mod, command='a-command')
+        cli = pn.PN_cli(mod)
 
         # Check for success
-        self.assertEquals(cli.check_command_string("Success", 'message'),
+        self.assertEquals(cli.check_command_string('a-command', "Success", 'message'),
                           'message: Successful')
 
         # Check for failure
         mod.command_pass = False
-        self.assertEquals(cli.check_command_string("Failure", 'message'),
+        self.assertEquals(cli.check_command_string('a-command', "Failure", 'message'),
                           'message: Failed')
 
 
     def test_PN_cli_send_exit(self):
         mod = Module()
-        cli = pn.PN_cli(mod, command='a-command')
-
-        # Status is 0 w/o ovrmsg
-        self.assertEquals(cli.send_exit(0),
-                          json_out({'msg': 'Operation Completed: a-command',
-                                    'changed': False}))
+        cli = pn.PN_cli(mod)
         
-        # Status is 0 w/ ovrmsg
+        # Status is 0
         self.assertEquals(cli.send_exit(0, 'message'),
                           json_out({'msg': 'message', 'changed': False}))
         
-        # Status is 1 w/o ovrmsg
-        self.assertEquals(cli.send_exit(1),
-                          json_out({'msg': 'Operation Completed: a-command',
-                                    'changed': True}))
-        
-        # Status is 1 w/ ovrmsg
+        # Status is 1
         self.assertEquals(cli.send_exit(1, 'message'),
                           json_out({'msg': 'message', 'changed': True}))
         
-        # Status is not 1 or 0 w/o ovrmsg
-        self.assertEquals(cli.send_exit(5),
-                          json_out({'msg': 'Operation Failure: a-command'}))
-        
-        # Status is not 1 or 0 w/ ovrmsg
+        # Status is not 1 or 0
         self.assertEquals(cli.send_exit(5, 'message'),
-                          json_out({'msg': 'Operation}))
+                          json_out({'msg': 'message'}))
+
+
+    def test_PN_cli_cluster(self):
+        mod = Module()
+        cli = pn.PN_cli(mod)
+
+        # Create
+        cli.cluster('create', cluster_name='test-cluster',
+                    cluster_node_1='node-1', cluster_node_2='node-2')
+        self.assertEquals(cli.cluster('exists', cluster_name='test-cluster'),
+                          True)
+        # Create wrong params
+        # Delete
+        cli.cluster('delete', cluster_name='test-cluster')
+        self.assertEquals(cli.cluster('exists', cluster_name='test-cluster'),
+                         False)
+        # Delete wrong params
+        # Exists
+        # Exists wrong params
+        # Show
 
         
 if __name__ == '__main__':
