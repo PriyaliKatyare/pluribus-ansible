@@ -24,12 +24,16 @@ class Module():
         self.command_pass = True
 
         self.clusters = [] # Used to test cluster management
+        self.vlans = [] # Used to test vlan management
+
 
     def exit_json(self, **kwargs):
         return json_out(kwargs)
 
+
     def fail_json(self, **kwargs):
         return json_out(kwargs)
+
 
     def run_command(self, command):
         """
@@ -37,6 +41,25 @@ class Module():
         self.command_pass flag is set.
         """
         command = ' '.join(command)
+
+        r = re.compile('[A-Za-z\-// ]* cluster')
+        if r.match(command):
+            return self.handle_clusters(command)
+
+        r = re.compile('[A-Za-z\-// ]* vlan')
+        if r.match(command):
+            return self.handle_vlans(command)
+        
+        if self.command_pass:
+            return ('0', "Success", 'no error')
+        else:
+            return ('5', '', 'Error!')
+
+
+    def handle_clusters(self, command):
+        """
+        """
+        # cluster-create
         r = re.compile('[A-Za-z\-// ]* cluster-create name')
         if r.match(command):
             command = command.split()
@@ -46,7 +69,8 @@ class Module():
                 'cluster-node-2': command[-1]
             })
             return ('0', "Cluster %s created" % command[-5], 'no error')
-
+        
+        # cluster-delete
         r = re.compile('[A-Za-z\-// ]* cluster-delete name')
         if r.match(command):
             command = command.split()
@@ -55,19 +79,65 @@ class Module():
                     self.clusters.remove(cluster)
                     return ('0', "Cluster %s removed" % command[-1], 'no error')
             return ('0', "Cluster was not deleted", 'Error!')
-
+        
+        # cluster-show
         r = re.compile('[A-Za-z\-// ]* cluster-show')
         if r.match(command):
             out = ""
             for cluster in self.clusters:
-                out += cluster['cluster-name']
-            out += "\n"
+                out += " " + cluster['cluster-name']
             return ('0', out, 'no error')
-        
-        if self.command_pass:
-            return ('0', "Success", 'no error')
-        else:
-            return ('5', '', 'Error!')
+
+        raise ValueError("Recieved bad command %s from caller" % command)
+
+
+    def handle_vlans(self, command):
+        """
+        Let the Module class masquerede as a pretty vlan CLI handler, everyone
+        likes to feel pretty sometimes. This method is only for unit testing the
+        PN_cli.vlan(...) method. It sends back responses similar to those 
+        recieved when querying the real CLI.
+        :param command: The command that should be sent to the CLI.
+        """
+        # vlan-create
+        r = re.compile('[A-Za-z\-// ]* vlan-create vlan-id')
+        if r.match(command):
+            command = command.split()
+            self.vlans.append({
+                'vlan-id': command[command.index('vlan-id') + 1],
+            })
+            return ('0', "Vlan %s created" % command[command.index('vlan-id') + 1], 'no error')
+
+        # vlan-delete
+        r = re.compile('[A-Za-z\-// ]* vlan-delete vlan-id')
+        if r.match(command):
+            command = command.split()
+            for vlan in self.vlans:
+                if vlan['vlan-id'] == command[command.index('vlan-id') + 1]:
+                    self.vlans.remove(vlan)
+                    return ('0', "Vlan %s removed" % \
+                            command[command.index('vlan-id') + 1], 'no error')
+            return ('0', "Vlan was not deleted", 'Error!')
+
+        # vlan-modify
+        r = re.compile('[A-Za-z\-// ]* vlan-modify vlan-id')
+        if r.match(command):
+            command = command.split()
+            for vlan in self.vlans:
+                if vlan['vlan-id'] == command[command.index('vlan-id') + 1]:
+                    return ('0', 'Vlan %s has been modified' % \
+                        command[command.index('vlan-id') + 1], 'no error')
+            return ('0', "Vlan does not exist and cannot be modified", 'Error!')
+
+        # vlan-show
+        r = re.compile('[A-Za-z\-// ]* vlan-show')
+        if r.match(command):
+            out = ""
+            for vlan in self.vlans:
+                out += " " + vlan['vlan-id']
+            return ('0', out, 'no error')
+
+        raise ValueError("Recieved bad command \'%s\' from caller" % command)
         
 
 class PN_ansible_lib_TEST(ut.TestCase):
@@ -175,14 +245,59 @@ class PN_ansible_lib_TEST(ut.TestCase):
                           True)
         # Create wrong params
         # Delete
+        self.assertEquals(cli.cluster('exists', cluster_name='test-cluster'),
+                          True)
         cli.cluster('delete', cluster_name='test-cluster')
         self.assertEquals(cli.cluster('exists', cluster_name='test-cluster'),
                          False)
         # Delete wrong params
         # Exists
+        self.assertNotEquals(cli.cluster('exists', cluster_name='new-cluster'),
+                             True)
         # Exists wrong params
         # Show
+        cli.cluster('create', cluster_name='test-cluster',
+                    cluster_node_1='node-1', cluster_node_2='node-2')
+        cli.cluster('create', cluster_name='new-cluster',
+                    cluster_node_1='node-1', cluster_node_2='node-2')
+        self.assertEquals(cli.cluster('show'), ' test-cluster new-cluster')
 
+
+    def test_PN_cli_vlan(self):
+        mod = Module()
+        cli = pn.PN_cli(mod)
+
+        # Create
+        cli.vlan('create', vlan_id='5', vnet_name='test-vnet', vxlan='vxlan',
+                 vxlan_mode='mode', public_vlan='public', scope='fabric')
+        self.assertEquals(cli.vlan('exists', vlan_id='5'), True)
         
+        # Delete
+        self.assertEquals(cli.vlan('exists', vlan_id='5'), True)
+        cli.vlan('delete', vlan_id=5, vnet_name='test-vnet')
+        self.assertEquals(cli.vlan('exists', vlan_id='5'), False)
+        
+        # Exists
+        self.assertNotEquals(cli.vlan('exists', vlan_id='10'), True)
+        
+        # Modiy
+        cli.vlan('create', vlan_id='5', vnet_name='test-vnet', vxlan='vxlan',
+                 vxlan_mode='mode', public_vlan='public', scope='fabric')
+        cli.vlan('modify', vlan_id='5', description='modified')
+        self.assertEquals(cli.vlan('exists', vlan_id='5'), True)
+        cli.vlan('delete', vlan_id='5', vnet_name='test-vnet')
+        
+        # Show
+        cli.vlan('create', vlan_id='7', vnet_name='test-vnet', vxlan='vxlan',
+                 vxlan_mode='mode', public_vlan='public', scope='fabric')
+        cli.vlan('create', vlan_id='8', vnet_name='test-vnet', vxlan='vxlan',
+                 vxlan_mode='mode', public_vlan='public', scope='fabric')
+        self.assertEquals(cli.vlan('show'), ' 7 8')
+
+
+    def test_PN_cli_fabric(self):
+        pass
+
+
 if __name__ == '__main__':
     ut.main()

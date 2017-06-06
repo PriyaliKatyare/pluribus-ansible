@@ -29,6 +29,67 @@ then to use a function that is defined in the library use:
 
 import shlex
 
+def calc_link_ip_addr(addr, cidr, supernet):
+    """
+    Calculates link IP addresses for layer 3 fabric.
+    :param addr:
+    :param cidr:
+    :param supernet:
+    :return: A list of all avaliable IP addresses that can be assigned to the
+    vrouter interfaces for the layer 3 fabric.
+    """
+
+    supernet_mapping = {
+        27: 2,
+        28: 14,
+        29: 6,
+        30: 2
+    }
+
+    addr = [int(x) for x in addr.split('.')]
+    cidr = int(cidr)
+    supernet = int(supernet)
+
+    mask = [0, 0, 0, 0]
+    for i in range(cidr):
+        mask[i / 8] += (1 << (7 - i % 8))
+
+    network = []
+    for i in range(4):
+        network.append(addr[i] & mask[i])
+
+    broadcast = network
+    for i in range(32 - cidr):
+        broadcast[3 - i / 8] += (1 << (i % 8))
+
+    avaliable_ips = []
+    host = int(addr[3]) - ((int(addr[3]) % (supernet_mapping[supernet] + 2)))
+    count = 0
+
+    third_oct = network[2]
+    
+    while third_oct <= broadcast[2]:
+        ip_list = []
+        while count <  broadcast[3]:
+            hostmin = host + 1
+            hostmax = host + supernet_mapping[supernet]
+            while hostmin <= hostmax:
+                ip_list.append(hostmin)
+                hostmin += 1
+            host = hostmax + 2
+            count += host
+
+        ip_address = [broadcast[0], broadcast[1], third_oct]
+        for i in range(len(ip_list)):
+            avaliable_ips.append('.'.join(str(x) for x in ip_address)
+                                 + ".%s/%s" % (ip_list[i], supernet))
+
+        host = count = 0
+        third_oct += 1
+
+    return avaliable_ips
+
+
 class PN_cli:
     """
     This is class designed to abstract the Pluribus CLI.
@@ -59,8 +120,6 @@ class PN_cli:
 
 
         self.module = module
-        self.success_message = "Operation Completed: "
-        self.failure_message = "Operation Failure: "
 
 
     def format(self, format):
@@ -144,14 +203,15 @@ class PN_cli:
         return "%s: Failed" % message
 
     
-    def send_exit(self, status, message):
+    def send_exit(self, status, message, **kwargs):
         """
         Sends a module exit_json to Ansible.
         :param status: The status to be returned. Status 0 if success but no
         changes (idepotency), 1 is success and things were changed. Any other
         status is a general failure.
-        :param ovrmsg: String that overwrites the default message sent back to
-        Ansible.
+        :param message: The message to be sent back in the JSON response.
+        :param kwargs: Unpacks all key word arguments into the module's exit json
+        method. 
         """
 
         change = False
@@ -165,40 +225,76 @@ class PN_cli:
             # easier.
             return self.module.exit_json(
                 msg=message,
-                changed=change
+                changed=change,
+                **kwargs
             )
         
         # Return statement not necessary, however it makes unit testing much
         # easier.
         return self.module.fail_json(
             msg=message,
+            **kwargs
         )
 
 
-    def vcfm_json(self):
+    def vcfm_json(self, status_int, message, summary, task, status, **kwargs):
         """
         Outputs the required json for vcf-m applications. Follows standards
         outlined by: 
         confluence.pluribusnetworks.com/pages/viewpage.action?pageId=12452428
+        This method is a specific implementation of the PN_cli.send_exit()
+        method. See PN_cli.send_exit() for more information on the general 
+        version of this funtion.
+        :param status_int: Ansible status. 0 is success but no changes.
+        (idempotency). 1 is success and things were changed. Any other status
+        is a general failure.
+        :param message: The status message to be sent back in the JSON output.
+        :param summary: An array of dictionaries. Each dictionary has two 
+        entries, "output" and "switch". Output is the CLI output returned by the
+        switch. Switch is the name of the switch that the output was returned 
+        from.
+        :param task: A string that describes the Ansible task that was executed
+        by the switch.
+        :param status: An integer for the status of the execution. This value
+        will either be 0 or 1. 0 means success and 1 means failure. This is a
+        different value than status_int. This can be confusing, but status_int is
+        a switch for the send_exit() method, and status is a status for vcfm.
+        :param kwargs: Any additional output keyword arguments, these are passed
+        as is to the modules's exit_json or fail_json methods.
         """
 
-        #TODO: Implement this function
-        pass
+        self.send_exit(status,
+                       message,
+                       summary=summary,
+                       task=task,
+                       status=status,
+                       **kwargs)
 
 
-    def vrouter(action, **kwargs):
+    def aks(self, kwargs, command, option):
         """
-        Handle's vrouter creation, deletion, modification and show commands
-        :param action: [ create | delete | show ]
-        :return:
+        Add Kwargs Simple
         """
-        if action is 'create':
-            pass
-        elif action is 'delete':
-            pass
-        else:
-            #show
-            pass
+        if option in kwargs:
+            command += " %s %s" % (option.replace('_','-'), kwargs[check])
+
+
+    def aka(self, kwargs, command, option, list):
+        """
+        Add Kwargs Array
+        """
+        if option in kwargs:
+            for item in list:
+                if item == kwargs['option']:
+                    command += " %s %s" % (option.replace('_','-', item))
+
+
+    def akb(self, kwargs, command, option, bool):
+        """
+        Add Kwargs Bool
+        """
+        if option in kwargs:
+            command += " %s", bool[0] if kwargs[option] else bool[1]
 
 
     def cluster(self, action, **kwargs):
@@ -208,65 +304,14 @@ class PN_cli:
         Issues: Does not support validate | no-validate command line option when
         creating a cluster.
         :param action: The action to preform [ create | delete | exists | show ].
-        :param kwargs: Keyword arguments to the function, see the ONVL command
+        :param kwargs: Keyword arguments to the method, see the ONVL command
         guide for relevant arguments based on the action. Note that all '-' must
         be converted to a '_' in keyword arguments to follow python syntax rules.
         :return: Depends on action, create and delete return nothing, exists 
         returns a boolean and show returns the output from the cli.
-
-        Examples:
-
-        Create a cluster between two switches:
-        ```python
-        ...
-        import pn_ansible_lib as pn
-        ...
-        cli = pn.PN_cli(module)
-
-        # Check that the cluster doesn't already exist.
-        if not cli.cluster('exists', cluster_name='example'):
-            cli.cluster('create', cluster_name='example', 
-                        cluster_node_1='switch-1', cluster_node_2='switch-2')
-
-            if cli.cluster('exists', cluster_name='example'):
-                # Good to go, it worked!
-                ...
-            else:
-                # Cluster wasn't created :(
-                ...
-
-        else:
-            # Cluster already exists
-            ...
-
-        ...
-        ```
-
-        Delete a cluster between two switches:
-        ```python
-        ...
-        import pn_ansible_lib as pn
-        ...
-        cli = pn.PN_cli(module)
-
-        # Check if the cluster even exists
-        if cli.cluster('exists', cluster_name='example'):
-            cli.cluster('delete', cluster_name='example'):
-        
-            if cli.cluster('exists', cluster_name='example'):
-                # Cluster wasn't deleted :(
-                ...
-            else:
-                # Cluster was deleted! Yay!
-                ...
-
-        else:
-            # Cluster didn't exist in the first place
-            ...
-
-        ...
-        ```
         """
+
+        #TODO: Add error checking for key word arguments
 
         # Handles logic to create a cluster
         if action is 'create':
@@ -299,12 +344,252 @@ class PN_cli:
 
             return True if kwargs['cluster_name'] in self.cluster('').split() else False
 
-        # Returns the names of all clusters
-        else:
-            command = 'cluster-show' + self.format("name")
+        # Returns the names of all clusters if action isn't recognized
+        command = 'cluster-show' + self.format("name")
+        return self.send_command(command)
+
+        
+    def vlan(self, action, **kwargs):
+        """
+        Handles CLI commands related to vlans. Does not handle any idempotency
+        logic. Idempotency must be implemented in the module itself. Note: This
+        method does not preform argument type checking, and assumes that all of
+        the keyword arguments have the correct type.
+        :param action: The action to preform [ create | delete | exists | show ].
+        :param kwargs: Keyword arguments to the method, see the ONVL command
+        guide for relevant arguments based on the action. Note that all '-' must
+        be converted to a '_' in keyword arguments to follow python syntax rules.
+        :return: Depends on the action. Create and delete return nothing, exists
+        returns a boolean and show retuns the 'vlan-show' output from the CLI.
+        """
+
+        # TODO: Add error checking for the keyword arguments
+        
+        # Create a vlan
+        if action == 'create':
+            if not ('vlan_id' in kwargs and 'vnet_name' in kwargs and \
+                    'vxlan' in kwargs and 'vxlan_mode' in kwargs and \
+                    'public_vlan' in kwargs and 'scope' in kwargs):
+                self.send_exit(5, 'Create vlan is missing parameters')
+
+            command = 'vlan-create'
+
+            for option in ['vlan-id', 'vnet_name', 'vxlan',
+                           'vxlan-mode', 'public-vlan', 'scope']:
+                command += " %s %s" % (option, kwargs[option.replace('-','_')])
+            
+            if 'description' in kwargs:
+                command += " description %s" % kwargs['description']
+
+            if 'stats' in kwargs:
+                if kwargs['stats']:
+                    command += " stats"
+                else:
+                    command += " no-stats"
+
+            if 'ports' in kwargs:
+                command += " ports %s" % kwargs['ports']
+
+            if 'untagged_ports' in kwargs:
+                command += " untagged-ports %s" % kwargs['untagged_ports']
+
+            self.send_command(command)
+            return
+
+        # Delete a vlan
+        elif action == 'delete':
+            if not ('vlan_id' in kwargs and 'vnet_name' in kwargs):
+                self.send_exit(5, 'Deleting a vlan requires id and name')
+
+            self.send_command("vlan-delete vlan-id %s vnet %s" % (
+                kwargs['vlan_id'], kwargs['vnet_name']))
+            return
+
+        # Modify an existing vlan
+        elif action == 'modify':
+            if not ('vlan_id' in kwargs):
+                self.send_exit(5, 'Must supply an id to vlan-modify')
+
+            command = "vlan-modify vlan-id %s" % kwargs['vlan_id']
+
+            self.aks(kwargs, command, 'description')
+            self.aks(kwargs, command, 'vxlan')
+            self.aks(kwargs, command, 'vnet')
+
+            self.send_command(command)
+            return
+
+        # Check if a vlan exists
+        elif action == 'exists':
+            if not 'vlan_id' in kwargs:
+                self.send_exit(5, "Must provide an id to search for")
+                
+            if kwargs['vlan_id'] in self.vlan('show').split():
+                return True
+
+            return False
+
+        # Fall through and send a show command if the action isn't recognized
+        return self.send_command('vlan-show' + self.format('id'))
+
+
+    def vrouter(action, **kwargs):
+        """
+        Handles the management of vrouters through the CLI. This method does not 
+        handle any any idempotency logic. The responsibility of implementing
+        idempotency falls to the caller. This method also does not currently do
+        ANY error checking on the key word arguments.
+        :param action:
+        :param kwargs:
+        :return:
+        """
+
+        if action == 'create':
+            if not ('name' in kwargs and 'vnet' in kwargs):
+                self.send_exit(5, 'Vrouter create is missing parameters')
+
+            command = "vrouter-create name %s vnet %s" % (kwargs['name'],
+                                                           kwargs['vnet'])
+
+            if 'dedicated_vnet_service' in kwargs:
+                if kwargs['dedicated_vnet_service']:
+                    command += ' dedicated-vnet-service'
+                else:
+                    if 'shared_vnet_mgr' not in kwargs:
+                        self.send_exit(5, 'A shared vrouter needs a manager')
+                    
+                    command += "shared-vnet-service shared-vnet-mgr %s" % \
+                               kwargs['shared_vnet_mgr']
+
+            if 'service' in kwargs:
+                if kwargs['service']:
+                    command += ' enable'
+                else:
+                    command += 'disable'
+
+            self.aks(kwargs, command, 'storage_pool')
+            self.aka(kwargs, command, 'router_type', ['hardware', 'software'])
+            self.aks(kwargs, command, 'hw_vrrp_id')
+            self.aks(kwargs, command, 'bgp_as')
+            self.aks(kwargs, command, 'router_id')
+            self.aka(kwargs, command, 'proto_multi', ['none', 'vmrp', 'pim-ssm'])
+            self.aka(kwargs, command, 'bgp_redistribute',
+                     ['static', 'connected', 'rip', 'ospf'])
+
+            # TODO: Other command options need to be implemented
+
+            self.send_command(command)
+            return
+                
+        elif action == 'delete':
+            if not ('name' in kwargs):
+                self.send_exit(5, 'Need to specify a vrouter to delete')
+
+            self.send_command(command)
+            return
+
+        elif action == 'modify':
+            pass
+
+        elif action == 'exists':
+            pass
+        
+        # If action isn't recognized return the output from a show command
+        return self.send_command('vrouter-show' + self.format(name))
+
+
+    def vrouter_bgp_add(action, **kwargs):
+        """
+        """
+        pass
+
+    
+    def vrouter_interface(action, **kwargs):
+        """
+        """
+        pass
+
+
+    def loopback_interface(action, **kwargs):
+        """
+        """
+        pass
+
+
+    def fabric(self, action, **kwargs):
+        """
+        Handle fabric actions on the CLI.
+        :param action: The action to preform [ create | join | node-show | show ]
+        :param kwargs: Keyword arguments to the method, see the ONVL command
+        guide for relevant arguments based on the action. Note that all '-' must
+        be converted to '_' in the keyword arguments to follow python syntax 
+        rules.
+        :return:
+        """
+        
+        if action == 'node-show':
+            command = 'fabric-node-show'
+
+            return self.send_command(command)
+        
+        elif action == 'create':
+            if 'name' not in kwargs:
+                self.send_exit(5, 'Must specify a fabric name to '
+                               'create a fabric')
+
+            command = "fabric-create %s" % kwargs['name']
+
+            self.aks(kwargs, command, 'repeer-to-cluster-node')
+            self.aks(kwargs, command, 'vlan')
+            self.aks(kwargs, command, 'password')
+            self.aka(kwargs, command, 'fabric-network', ['in-band', 'mgmt'])
+            self.aka(kwargs, command, 'fabric-advertisement-network',
+                     ['inband-mgmt', 'inband-only'])
+            self.akb(kwargs, command, 'conflicts',
+                     ['delete-conflicts', 'abort-on-conflict'])
+
+            return self.send_command(command)
+                
+        elif action == 'join':
+            if 'name' not in kwargs and 'switch-ip' not in kwargs:
+                self.send_exit(5, 'Must specify a name or switch-ip to join a '
+                               'fabric')
+
+            command = 'fabric-join'
+            
+            if 'name' in kwargs:
+                command += " name %s" % kwargs['name']
+
+            else:
+                command += " switch-ip %s" % kwargs['switch-ip']
+
+            self.aks(kwargs, command, 'vlan')
+            self.aks(kwargs, command, 'password')
+            self.aks(kwargs, command, 'repeer-to-cluster-node')
+            self.akb(kwargs, command, 'conflicts',
+                     ['delete-conflicts', 'abort-on-conflict'])
+
             return self.send_command(command)
 
+        elif action == 'exists':
+            if 'name' not in kwargs:
+                self.send_exit(5, 'Must specify a fabric name to check that '
+                               'a fabric exists')
 
-        
+            if kwargs['name'] in self.fabric('fabric-show'):
+                return True
 
+            return False
         
+        # fall through to fabric-show
+        command = 'fabric-show'
+
+        self.aks(kwargs, command, 'name')
+        self.aks(kwargs, command, 'switch-ip')
+        self.aks(kwargs, command, 'vlan')
+        self.aks(kwargs, command, 'tid')
+
+        return self.send_command(command)
+
+
+	
