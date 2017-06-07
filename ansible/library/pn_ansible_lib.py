@@ -147,7 +147,7 @@ class PN_cli:
         return ' '.join((prepend + " " + self.prefix + " " + command).split())
 
     
-    def send_command(self, command):
+    def send_command(self, command, expect_output=True):
         """
         Send a command to the CLI on the destination host. Runs the current 
         instance's command on the destination host and returns the result. If the
@@ -156,12 +156,19 @@ class PN_cli:
         :param command: The command to send to the cli.
         :return: The output sent back by the CLI
         """
-        
+
+        # TODO: Check for error instead of output
         command = shlex.split(self.gen_command(command))
         out, err = self.module.run_command(command)[1:]
         
         # TODO: Use module.fail_json?
-        return out if out else self.module.exit_json(
+        if expect_output and out:
+            return out
+
+        elif not expect_output and not out:
+            return ""
+
+        self.module.exit_json(
             error='1',
             failed=True,
             stderr = err.strip(),
@@ -235,6 +242,18 @@ class PN_cli:
             msg=message,
             **kwargs
         )
+
+
+    def auto_accept_eula(self):
+        """
+        Accepts the EULA when Ansible logs into a new switch. This method is
+        referenced from the auto_accept_eula in pn_initial_ztp.py
+        :return: The output from the cli command sent to the target.
+        """
+        
+        return self.send_command("--skip-setup --script-password "
+                                 "switch-setup-modify password %s eula-accepted"
+                                 " true" % module.params['password'])
 
 
     def vcfm_json(self, status_int, message, summary, task, status, **kwargs):
@@ -311,6 +330,9 @@ class PN_cli:
         returns a boolean and show returns the output from the cli.
         """
 
+        command = ''
+        self.aks(kwargs, command, 'switch')
+
         #TODO: Add error checking for key word arguments
 
         # Handles logic to create a cluster
@@ -363,6 +385,9 @@ class PN_cli:
         returns a boolean and show retuns the 'vlan-show' output from the CLI.
         """
 
+        command = ''
+        self.aks(kwargs, command, 'switch')
+
         # TODO: Add error checking for the keyword arguments
         
         # Create a vlan
@@ -372,7 +397,7 @@ class PN_cli:
                     'public_vlan' in kwargs and 'scope' in kwargs):
                 self.send_exit(5, 'Create vlan is missing parameters')
 
-            command = 'vlan-create'
+            command += 'vlan-create'
 
             for option in ['vlan-id', 'vnet_name', 'vxlan',
                            'vxlan-mode', 'public-vlan', 'scope']:
@@ -410,7 +435,7 @@ class PN_cli:
             if not ('vlan_id' in kwargs):
                 self.send_exit(5, 'Must supply an id to vlan-modify')
 
-            command = "vlan-modify vlan-id %s" % kwargs['vlan_id']
+            command += "vlan-modify vlan-id %s" % kwargs['vlan_id']
 
             self.aks(kwargs, command, 'description')
             self.aks(kwargs, command, 'vxlan')
@@ -433,7 +458,7 @@ class PN_cli:
         return self.send_command('vlan-show' + self.format('id'))
 
 
-    def vrouter(action, **kwargs):
+    def vrouter(self, action, **kwargs):
         """
         Handles the management of vrouters through the CLI. This method does not 
         handle any any idempotency logic. The responsibility of implementing
@@ -444,11 +469,14 @@ class PN_cli:
         :return:
         """
 
+        command = ''
+        self.aks(kwargs, command, 'switch')
+        
         if action == 'create':
             if not ('name' in kwargs and 'vnet' in kwargs):
                 self.send_exit(5, 'Vrouter create is missing parameters')
 
-            command = "vrouter-create name %s vnet %s" % (kwargs['name'],
+            command += "vrouter-create name %s vnet %s" % (kwargs['name'],
                                                            kwargs['vnet'])
 
             if 'dedicated_vnet_service' in kwargs:
@@ -495,25 +523,190 @@ class PN_cli:
             pass
         
         # If action isn't recognized return the output from a show command
-        return self.send_command('vrouter-show' + self.format(name))
+        return self.send_command('vrouter-show' + self.format('name'))
 
 
-    def vrouter_bgp_add(action, **kwargs):
+    def vrouter_bgp(self, action, **kwargs):
         """
         """
+        
+        command = ''
+        self.aks(kwargs, command, 'switch')
+        pass
+
+
+    def vrouter_interface_config(self, action, **kwargs):
+        """
+        Handle vrouter interface configs on the CLI. This method covers the
+        vrouter-interface-config-add, vrouter-interface-config-modify and
+        vrouter-interface-config-remove commands from the CLI.
+        """
+        
+        command = ''
+        self.aks(kwargs, command, 'switch')
+
+        if action == 'add':
+            pass
+        elif action == 'modify':
+            pass
+        elif action == 'remove':
+            pass
         pass
 
     
-    def vrouter_interface(action, **kwargs):
+    def vrouter_interface(self, action, **kwargs):
+        """
+        Handle managing vrouter-interfaces on the CLI. This method covers the
+        vrouter-interface-add, vrouter-interface-modify and 
+        vrouter-interface-remove commands. This method does not do any type or
+        value checking on the parameters that are givin to it.
+        :param action: The action to preform with the vrouter interface. Maps
+        add, modify and remove to create, modify and delete to match with other
+        CLI action methods. [ add | create | modify | exists | remove | delete ]
+        :param kwargs: Keyword arguments. See ONVL product documentation for a
+        list of options for these commands.
+        :return:
+        """
+
+        command = ''
+        self.aks(kwargs, command, 'switch')
+
+        if action == 'add' or action == 'create':
+            if 'vrouter-name' not in kwargs:
+                self.send_exit(5, 'Must specify a vrouter for the vrouter interface')
+
+            command += 'vrouter-interface-add'
+            
+            self.aks(kwargs, command, 'vrouter-name')
+            self.aks(kwargs, command, 'ip')
+            self.aks(kwargs, command, 'netmask')
+            self.aka(kwargs, command, 'assignment',
+                     ['none', 'dhcp', 'dhcpv6', 'autov6'])
+            self.aka(kwargs, command, 'vlan-type', ['public', 'private'])
+            self.aks(kwargs, command, 'vxlan')
+            self.aka(kwargs, command, 'if', ['mgmt', 'data', 'span'])
+            self.aks(kwargs, command, 'alias-on')
+            self.akb(kwargs, command, 'exclusive', ['exclusive', 'no-exclusive'])
+            self.akb(kwargs, command, 'nic-enable', ['nic-enable', 'nic-disable'])
+            self.aks(kwargs, command, 'vrrp-id')
+            self.aks(kwargs, command, 'vrrp-primary')
+            self.aks(kwargs, command, 'vrrp-priority')
+            self.aks(kwargs, command, 'vrrp-adv-int')
+            self.aks(kwargs, command, 'l3-port')
+            self.aks(kwargs, command, 'mtu')
+
+            return self.send_command(command)
+
+        elif action == 'modify':
+            if 'vrouter-name' not in kwargs:
+                self.send_exit(5, 'Must specify a vrouter interface to modify')
+
+            command += 'vrouter-interface-modify'
+                
+            self.aks(kwargs, command, 'vrouter-name')
+            self.aks(kwargs, command, 'nic-string')
+            self.aks(kwargs, command, 'ip')
+            self.aks(kwargs, command, 'netmask')
+            self.aka(kwargs, command, 'assignment',
+                     ['none', 'dhcp', 'dhcpv6', 'autov6'])
+            self.aka(kwargs, command, 'vlan-type', ['public', 'private'])
+            self.aks(kwargs, command, 'vxlan')
+            self.aka(kwargs, command, 'if', ['mgmt', 'data', 'span'])
+            self.aks(kwargs, command, 'alias-on')
+            self.akb(kwargs, command, 'exclusive', ['exclusive', 'no-exclusive'])
+            self.akb(kwargs, command, 'nic-enable', ['nic-enable', 'nic-disable'])
+            self.aks(kwargs, command, 'vrrp-id')
+            self.aks(kwargs, command, 'vrrp-primary')
+            self.aks(kwargs, command, 'vrrp-priority')
+            self.aks(kwargs, command, 'vrrp-adv-int')
+            self.aks(kwargs, command, 'l3-port')
+            self.aks(kwargs, command, 'secondary-macs')
+            self.aks(kwargs, command, 'mtu')
+
+            return self.send_command(command)
+            
+        elif action == 'exists':
+            if 'vrouter-name' not in kwargs:
+                self.send_exit(5, 'Must specify a vrouter interface to check')
+
+        elif action == 'remove' or action == 'delete':
+            if 'vrouter-name' not in kwargs:
+                self.send_exit(5, 'Must specify a vrouter to delete interface from')
+
+            command += 'vrouter-interface-remove'
+
+            self.aks(kwargs, command, 'vrouter-name')
+            self.aks(kwargs, command, 'nic-string')
+
+            return self.send_command(command)
+
+        # Fall through to vrouter-interface-show
+
+
+    def loopback_interface(self, action, **kwargs):
         """
         """
+
+        command = ''
+        self.aks(kwargs, command, 'switch')
+        
         pass
 
 
-    def loopback_interface(action, **kwargs):
+    def trunk(self, action, **kwargs):
+        """
+        Handle trunk actions through the CLI
+        :param action:
+        :param kwargs:
+        :return:
+        """
+
+        command = ''
+        self.aks(kwargs, command, 'switch')
+        
+        if action == 'create':
+            pass
+
+        elif action == 'exists':
+            if 'name' not in kwargs:
+                self.send_exit(5, "Need to specify the name of a trunk to find")
+
+            command += 'trunk create'
+            
+            self.aks(kwargs, command, 'name')
+
+        elif action == 'delete':
+            pass
+
+        elif action == 'modify':
+            pass
+
+        # Fall through to trunk-show
+
+
+    def switch_setup(self, action, **kwargs):
         """
         """
-        pass
+
+        command = ''
+        self.aks(kwargs, command, 'switch-name')
+
+        if action == 'modify':
+
+            command += 'switch-setup-modify'
+
+            self.aks(kwargs, command, 'mgmt-ip')
+            self.aks(kwargs, command, 'mgmt-netmask')
+            self.aks(kwargs, command, 'gateway-ip')
+            self.aks(kwargs, command, 'dns-ip')
+            self.aks(kwargs, command, 'dns-secondary-ip')
+            self.aks(kwargs, command, 'domain-name')
+            self.aks(kwargs, command, 'ntp-serer')
+
+        elif action == 'show':
+            pass
+
+        self.send_exit(5, "switch_setup accepts modify or show as actions")
 
 
     def fabric(self, action, **kwargs):
@@ -526,18 +719,19 @@ class PN_cli:
         rules.
         :return:
         """
+
+        command = ''
+        self.aks(kwargs, command, 'switch')
         
         if action == 'node-show':
-            command = 'fabric-node-show'
-
-            return self.send_command(command)
+            return self.send_command('fabric-node-show' + self.format('name'))
         
         elif action == 'create':
             if 'name' not in kwargs:
                 self.send_exit(5, 'Must specify a fabric name to '
                                'create a fabric')
 
-            command = "fabric-create %s" % kwargs['name']
+            command += "fabric-create %s" % kwargs['name']
 
             self.aks(kwargs, command, 'repeer-to-cluster-node')
             self.aks(kwargs, command, 'vlan')
@@ -555,7 +749,7 @@ class PN_cli:
                 self.send_exit(5, 'Must specify a name or switch-ip to join a '
                                'fabric')
 
-            command = 'fabric-join'
+            command += 'fabric-join'
             
             if 'name' in kwargs:
                 command += " name %s" % kwargs['name']
@@ -580,9 +774,15 @@ class PN_cli:
                 return True
 
             return False
+
+        elif action == 'join':
+            pass
+
+        elif action == 'unjoin':
+            pass
         
         # fall through to fabric-show
-        command = 'fabric-show'
+        command += 'fabric-show'
 
         self.aks(kwargs, command, 'name')
         self.aks(kwargs, command, 'switch-ip')
@@ -590,6 +790,3 @@ class PN_cli:
         self.aks(kwargs, command, 'tid')
 
         return self.send_command(command)
-
-
-	
