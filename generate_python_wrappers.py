@@ -5,7 +5,7 @@ cat tmp.txt | sed 's/&nbsp; //g' | sed 's/\<td .*\>//' | sed 's/ border=0//' | s
 from bs4 import BeautifulSoup
 import re
 
-myfile = open('tmp2.txt', 'r')
+myfile = open('def.txt', 'r')
 data = myfile.read()
 
 class Decleration():
@@ -15,7 +15,7 @@ class Decleration():
 
 def struct_simple(option):
     return """        if '%s' in kwargs:
-            command += \" %s %%s\" %% kwargs['%s']""" % (option.replace('-','_'), option, option.replace('-','_'))
+            command += \" %s %%s\" %% kwargs['%s']""" % (option.replace('-','_'), option.replace('_',''), option.replace('-','_'))
 
 def struct_single(option):
     return """        if '%s' in kwargs:
@@ -26,7 +26,7 @@ def struct_array(option, choices):
             for item in %s:
                 if item == kwargs['%s']:
                     command += \" %s %%s\" %% item
-                    break""" % (option.replace('-','_'), choices, option.replace('-','_'), option)
+                    break""" % (option.replace('-','_'), choices, option.replace('-','_'), option.replace('_', ''))
 
 def struct_choice(choices):
     return """        if '%s' in kwargs:
@@ -53,29 +53,32 @@ for table in tables:
     rows = table.find_all('tr')
     print """
     def %s(self, **kwargs):
-        \"\"\"
-        THIS IS AN AUTO-GENERATED METHOD, SEE generate_python_wrappers.py
-        \"\"\"
         command = '%s'""" % (rows[0].td.get_text().replace('-','_'), rows[0].td.get_text())
     
     for row in rows[1:]:
-        text = row.td.get_text()
-        if simple.match(text):
-            print struct_simple(text.split()[0])
+        raw = row.td.get_text()
+        text = raw.split(" ")
+
+        # Handle the param 'if', which cant be passed as a kwarg
+        if text[0] == 'if':
+            text[0] = '_if'
             
-        elif single.match(text):
-            print struct_single(text.split()[0])
+        if simple.match(raw):
+            print struct_simple(text[0])
             
-        elif array.match(text):
-            option = text.split()[0]
-            choices = text.split()[1].split('|')
+        elif single.match(raw):
+            print struct_single(text[0])
+            
+        elif array.match(raw):
+            option = text[0]
+            choices = text[1].split('|')
             print struct_array(option, choices)
         
-        elif choice.match(text):
-            options = text.split('|')
+        elif choice.match(raw):
+            options = raw.split('|')
             print struct_choice(options)
         
-        elif range.match(text):
+        elif range.match(raw):
             #print "range: " + text
             pass
         
