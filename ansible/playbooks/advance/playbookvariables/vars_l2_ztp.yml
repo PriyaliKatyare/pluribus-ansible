@@ -1,5 +1,0 @@
----
-#L2 ZTP
-
-pn_update_fabric_to_inband: False     # optional, True:False, Flag to update fabric network to in-band, Update Fabric Network, text
-pn_stp: True                          # optional, True:False, Flag to enable STP at the end of configuration, STP, boolean
