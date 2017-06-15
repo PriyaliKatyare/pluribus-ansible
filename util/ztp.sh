@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+cd ../
+
 ##
 # Function to trap and display error messages.
 ##

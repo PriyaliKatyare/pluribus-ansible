@@ -15,6 +15,9 @@
   + [Running Playbooks](#running-playbooks)
   + [Repository](#repository)
   + [Troubleshooting Utilities!](#troubleshooting-utilities)
+  + [README_JSON.md](#readme_json)
+  + [HowTo.md](#howto)
+  + [Setup.md](#setup)
   
 # Ansible
  Ansible is an open source IT automation tool for configuration management, provisioning and application deployment. Ansible is agentless and does not require a software agent to be installed on the target nodes. It uses SSH for secured communication with the target nodes. The Pluribus Networks Ansible library provides support for using Ansible to deploy, configure and manage devices running Netvisor OS. This repository contains modules developed for Netvisor OS CLI to perform specific tasks on devices running Netvisor OS. These modules run CLI commands for installing Netvisor OS, configuring, retrieving information/device statistics, modifying configuration settings on the target nodes. 
@@ -481,4 +484,678 @@ Use the flags/options based on your requirements to run the playbooks.
   user	6m33.070s
   sys	0m57.437s
  ```
+ 
+ # README_JSON
+
+# Index
+  + [Synopsis](#synopsis)
+  + [Structure](#structure)
+  + [Code example](#code-example)
+  + [Configuration](#configuration)
+  + [Algorithm behind the working](#algorithm-behind-the-working)
+
+---
+# Synopsis:
+
+To have Ansible playbooks' results in json format with standard output payload  
+
+---
+## Structure:
+
+**The high-level skeleton for json object is:**  
+```  
+__________ANSIBLE_TASK_BOUNDARY_STARTS__________
+{  
+    "plays": [  
+        {  
+            "play": {  
+                "id":   
+                "name":  
+            },  
+            "tasks": [  
+                {  
+                    "status": {},  
+                    "hosts": {},  
+                    "task": {  
+                        "id":   
+                        "name":   
+                    }  
+                }  
+            ]  
+        }  
+    ]  
+}  
+__________ANSIBLE_TASK_BOUNDARY_ENDS__________
+```
+
+Every json object is wrapped with 2 messages:  
+ * `__________ANSIBLE_TASK_BOUNDARY_STARTS__________` notifying the start of the json object  
+ * `__________ANSIBLE_TASK_BOUNDARY_ENDS__________` notifying the end of the json object  
+
+The standard json object starts with a `plays` field. `plays` field is the highest level field in the json object.  
+ 
+ * `plays` field contains **play** and **tasks** which are next level of field.
+   * `play` tells about the description of a play. It contains **name** and **id**  
+      * `name` - It gives the name of the `play`  
+      * `id` - It gives id of the `play`  
+   * `tasks` tells about description of the task in the play. The `tasks` field contains **status**, **hosts** and **task**  
+      * `status` tells about the success or failure of the task. It can contain 3 values:  
+          * _0_ - for success  
+          * _1_ - for failure  
+          * _Cannot determine_ - if there is a weird behaviour  
+      * `task` field contains task name and task id of the task which is running.  
+      * `hosts` field contains the host name where the task execution is happening and host name contains the various attributes for a task which tells about the details on execution of a task in that host.  
+
+### There are 6 fixed attributes inside the hosts field which are:  
+
+`task` - name of task  
+`summary` - the json output command by command with the switch name in which it is executing  
+`msg` - short message related to the task  
+`failed` - true/false depending upon the execution of the task  
+`exception` - in case of any exception while running the modules  
+`unreachable` - in case of connection issues or some entity is unreachable  
+
+---
+## Code example:
+
+**One of the example for the json object is:**
+```
+__________ANSIBLE_TASK_BOUNDARY_STARTS__________
+{
+    "plays": [
+        {
+            "play": {
+                "id": "d00eb3af-a4d3-4887-9cdb-2eb26d11ee69",
+                "name": "Zero Touch Provisioning - Initial setup"
+            },
+            "tasks": [
+                {
+                    "hosts": {
+                        "ansible-spine1": {
+                            "_ansible_no_log": false,
+                            "_ansible_parsed": true,
+                            "attempts": 1,
+                            "changed": true,
+                            "exception": "",
+                            "failed": false,
+                            "invocation": {
+                                "module_args": {
+                                    "pn_clipassword": "VALUE_SPECIFIED_IN_NO_LOG_PARAMETER",
+                                    "pn_cliusername": "network-admin",
+                                    "pn_current_switch": "ansible-spine1",
+                                    "pn_dns_ip": null,
+                                    "pn_dns_secondary_ip": null,
+                                    "pn_domain_name": null,
+                                    "pn_fabric_control_network": "mgmt",
+                                    "pn_fabric_name": "ztp-fabric",
+                                    "pn_fabric_network": "mgmt",
+                                    "pn_gateway_ip": null,
+                                    "pn_inband_ip": "172.16.0.0/24",
+                                    "pn_mgmt_ip": null,
+                                    "pn_mgmt_ip_subnet": null,
+                                    "pn_ntp_server": null,
+                                    "pn_static_setup": false,
+                                    "pn_stp": false,
+                                    "pn_toggle_40g": true,
+                                    "pn_web_api": true
+                                },
+                                "module_name": "pn_initial_ztp_json"
+                            },
+                            "msg": "Initial ZTP configuration executed successfully",
+                            "summary": [
+                                {
+                                    "output": "Eula has already been accepted",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "Already a part of fabric ztp-fabric",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "Fabric is already in mgmt control network",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "STP is already disabled",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "Ports enabled",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "In-band ip has already been assigned",
+                                    "switch": "ansible-spine1"
+                                },
+                                {
+                                    "output": "In-band ip has already been assigned",
+                                    "switch": "ansible-spine1"
+                                }
+                            ],
+                            "task": "Auto accept EULA, Disable STP, enable ports and create/join fabric",
+                            "unreachable": false
+                        }
+                    },
+                    "status": "0",
+                    "task": {
+                        "id": "02f08ed7-b84c-4dcb-9b6e-58564636c423",
+                        "name": "Auto accept EULA, Disable STP, enable ports and create/join fabric"
+                    }
+                }
+            ]
+        }
+    ]
+}
+__________ANSIBLE_TASK_BOUNDARY_ENDS__________
+```
+
+---
+## Configuration:
+
+A **json callback plugin** needs to be used to get the desired results in json.  
+
+The name of json plugin is `pn_json.py` which can be found in the locations below:  
+1. https://github.com/amitsi/pluribus-ansible/tree/release-2.2.0/ansible  
+2. https://github.com/amitsi/pluribus-ansible/tree/master/ansible
+
+Then the `pn_json plugin` needs to be put in the following location:  
+1. **/usr/lib/python2.7/dist-packages/ansible/plugins/callback**  
+
+> Note: The plugin needs to be kept in the server machine from where the ansible execution is taking place.  
+
+Then the following changes have to be added in `/etc/ansible/ansible.cfg` configuration file:  
+a) gathering = explicit  
+b) stdout\_callback = pn\_json  
+
+---
+## Algorithm behind the working:  
+
+* Get the **task name** from `task` field  
+*  Then the `status` field has to be checked  
+  * if `status` field is '1':  
+     * Then take the **short error message** from the `msg` field. And **detailed error message** from either `exception/summary/stderr/stdout` field  
+  * elif `status` field is '0':  
+     * Then take the **short success message** from `msg` field. And the get the **detailed output** from the `summary` field.  
+  * else (`status` field is '-1'):  
+     * It is some weird behaviour. Pluribus team needs to be notified.  
+---
+
+# HowTo
+## Setup Ansible Config
+
+Update the following in /etc/ansible/ansible.cfg to appropriate location:
+
+```
+library        = /etc/ansible/pluribus-ansible/ansible/library
+```
+
+And also uncomment the following:
+
+```
+host_key_checking = False
+```
+
+## Run playbooks
+
+### Switch-Config-Reset Playbook
+
+Playbook command:
+
+```
+# ansible-playbook -i hosts pn_switch_reset.yml -u pluribus --ask-pass --ask-vault-pass -K
+```
+
+Output snippet:
+
+```
+--snip--
+PLAY [Switch Config Reset] *****************************************************
+
+TASK [setup] *******************************************************************
+ok: [ansible-leaf2]
+ok: [ansible-leaf3]
+ok: [ansible-leaf1]
+ok: [ansible-spine2]
+ok: [ansible-spine1]
+ok: [ansible-leaf4]
+
+TASK [Reset all switches] ******************************************************
+ok: [ansible-leaf3]
+ok: [ansible-leaf2]
+ok: [ansible-leaf1]
+ok: [ansible-spine1]
+ok: [ansible-spine2]
+ok: [ansible-leaf4]
+.
+.
+PLAY RECAP *********************************************************************
+ansible-leaf1              : ok=3    changed=0    unreachable=0    failed=0
+ansible-leaf2              : ok=3    changed=0    unreachable=0    failed=0
+ansible-leaf3              : ok=3    changed=0    unreachable=0    failed=0
+ansible-leaf4              : ok=3    changed=0    unreachable=0    failed=0
+ansible-spine1             : ok=4    changed=0    unreachable=0    failed=0
+ansible-spine2             : ok=3    changed=0    unreachable=0    failed=0
+--snip--
+```
+
+### Fabric Playbook
+
+Playbook command:
+
+```
+# ansible-playbook -i hosts pn_fabric.yml -u pluribus --ask-pass --ask-vault-pass -K
+```
+
+Output snippet:
+
+```
+--snip--
+PLAY [Zero Touch Provisioning - Initial setup] *********************************
+
+TASK [setup] *******************************************************************
+ok: [ansible-spine1]
+
+TASK [Auto accept EULA, Disable STP, enable ports and create/join fabric] ******
+changed: [ansible-spine1]
+
+TASK [debug] *******************************************************************
+ok: [ansible-spine1] => {
+    "ztp_out.stdout_lines": [
+        "  EULA has been accepted already!  ansible-spine1 is already in fabric vcf-ansible-fab!  Fabric is already in mgmt control network  STP is already disabled!  Ports enabled on ansible-spine1! "
+    ]
+}
+.
+.
+PLAY RECAP *********************************************************************
+ansible-leaf1              : ok=4    changed=1    unreachable=0    failed=0
+ansible-leaf2              : ok=4    changed=1    unreachable=0    failed=0
+ansible-leaf3              : ok=4    changed=1    unreachable=0    failed=0
+ansible-leaf4              : ok=4    changed=1    unreachable=0    failed=0
+ansible-spine1             : ok=4    changed=1    unreachable=0    failed=0
+ansible-spine2             : ok=4    changed=1    unreachable=0    failed=0
+--snip--
+```
+
+### Fabric Playbook - L2 with VRRP
+
+Create a CSV file. Sample CSV file:
+```
+# cat pn_vrrp_l2.csv
+101.108.100.0/24, 100, test-spine1
+101.108.101.0/24, 101, test-spine1
+101.108.102.0/24, 102, test-spine2
+101.108.103.0/24, 103, test-spine2
+```
+
+Modify CSV file path in YML file:
+
+```
+  vars:
+  - csv_file: /pluribus-ansible/ansible/pn_vrrp_l2.csv  # CSV file path.
+```
+
+Playbook command:
+
+```
+# ansible-playbook -i hosts pn_vrrp_l2_with_csv.yml -u pluribus --ask-pass --ask-vault-pass -K
+```
+
+### Fabric Playbook - L3
+
+Playbook command:
+
+```
+# ansible-playbook -i hosts pn_ztp_l3.yml -u pluribus --ask-pass --ask-vault-pass -K
+```
+
+Output snippet:
+
+```
+PLAY [Zero Touch Provisioning - Initial setup] *********************************
+
+TASK [setup] *******************************************************************
+ok: [gui-spine1]
+
+TASK [Auto accept EULA, Disable STP, enable ports and create/join fabric] ******
+changed: [gui-spine1]
+
+TASK [debug] *******************************************************************
+ok: [gui-spine1] => {
+    "ztp_out.stdout_lines": [
+        "  EULA accepted on gui-spine1!  gui-spine1 has joined fabric vz-fab!  Configured fabric control network to mgmt on gui-spine1!  STP disabled on gui-spine1!  Ports enabled on gui-spine1!  Toggled 40G ports to 10G on gui-spine1! "
+    ]
+}
+.
+.
+TASK [debug] *******************************************************************
+ok: [gui-spine1] => {
+    "ztp_l3_out.stdout_lines": [
+        "  Created vrouter gui-spine2-vrouter on switch gui-spine2   Created vrouter gui-spine1-vrouter on switch gui-spine1   Created vrouter gui-leaf4-vrouter on switch gui-leaf4   Created vrouter gui-leaf3-vrouter on switch gui-leaf3
+ Created vrouter gui-leaf2-vrouter on switch gui-leaf2   Created vrouter gui-leaf1-vrouter on switch gui-leaf1   Added vrouter interface with ip 172.168.1.1/30 on gui-leaf1!  Added BFD config to gui-leaf1-vrouter  Added vrouter interface
+with ip 172.168.1.2/30 on gui-spine1!  Added BFD config to gui-spine1-vrouter  Added vrouter interface with ip 172.168.1.5/30 on gui-leaf2!  Added BFD config to gui-leaf2-vrouter  Added vrouter interface with ip 172.168.1.6/30 on gui-spin
+e1!  Added BFD config to gui-spine1-vrouter  Added vrouter interface with ip 172.168.1.9/30 on gui-leaf3!  Added BFD config to gui-leaf3-vrouter  Added vrouter interface with ip 172.168.1.10/30 on gui-spine1!  Added BFD config to gui-spin
+e1-vrouter  Added vrouter interface with ip 172.168.1.13/30 on gui-leaf4!  Added BFD config to gui-leaf4-vrouter  Added vrouter interface with ip 172.168.1.14/30 on gui-spine1!  Added BFD config to gui-spine1-vrouter  Added vrouter interf
+ace with ip 172.168.1.17/30 on gui-leaf1!  Added BFD config to gui-leaf1-vrouter  Added vrouter interface with ip 172.168.1.18/30 on gui-spine2!  Added BFD config to gui-spine2-vrouter  Added vrouter interface with ip 172.168.1.21/30 on g
+ui-leaf2!  Added BFD config to gui-leaf2-vrouter  Added vrouter interface with ip 172.168.1.22/30 on gui-spine2!  Added BFD config to gui-spine2-vrouter  Added vrouter interface with ip 172.168.1.25/30 on gui-leaf3!  Added BFD config to g
+ui-leaf3-vrouter  Added vrouter interface with ip 172.168.1.26/30 on gui-spine2!  Added BFD config to gui-spine2-vrouter  Added vrouter interface with ip 172.168.1.29/30 on gui-leaf4!  Added BFD config to gui-leaf4-vrouter  Added vrouter
+interface with ip 172.168.1.30/30 on gui-spine2!  Added BFD config to gui-spine2-vrouter   Added loopback ip for vrouter gui-spine2-vrouter!  Added loopback ip for vrouter gui-spine1-vrouter!  Added loopback ip for vrouter gui-leaf4-vrout
+er!  Added loopback ip for vrouter gui-leaf3-vrouter!  Added loopback ip for vrouter gui-leaf2-vrouter!  Added loopback ip for vrouter gui-leaf1-vrouter! "
+    ]
+}
+
+TASK [pause] *******************************************************************
+Pausing for 2 seconds
+(ctrl+C then 'C' = continue early, ctrl+C then 'A' = abort)
+ok: [gui-spine1]
+
+PLAY RECAP *********************************************************************
+gui-leaf1                  : ok=4    changed=1    unreachable=0    failed=0
+gui-leaf2                  : ok=4    changed=1    unreachable=0    failed=0
+gui-leaf3                  : ok=4    changed=1    unreachable=0    failed=0
+gui-leaf4                  : ok=4    changed=1    unreachable=0    failed=0
+gui-spine1                 : ok=8    changed=2    unreachable=0    failed=0
+gui-spine2                 : ok=4    changed=1    unreachable=0    failed=0
+```
+
+### Fabric Playbook - L3 with VRRP
+
+Create a CSV file. Sample CSV file:
+
+```
+# cat pn_vrrp_l3.csv
+100, 172.168.100.0/24, test-leaf1, test-leaf2, 19, test-leaf1
+101, 172.168.101.0/24, test-leaf3
+102, 172.168.102.0/24, test-leaf4
+104, 172.168.104.0/24, test-leaf1, test-leaf2, 19, test-leaf1
+```
+
+Modify CSV file path in YML file:
+
+```
+  vars:
+  - csv_file: /etc/ansible/pluribus-ansible/ansible/pn_vrrp_l3.csv  # CSV file path.
+```
+
+Playbook command:
+
+```
+# ansible-playbook -i hosts pn_vrrp_l2_with_csv.yml -u pluribus --ask-pass --ask-vault-pass -K
+```
+
+# Setup.md
+This document aims to help you get started with Pluribus Ansible and provides some tips to make the most of your ansible experience.
+Ansible also has a comprehensive official documentation which is [amazing](#http://docs.ansible.com/ansible/index.html)!. You can refer it for more information. 
+
+## Setup
+
+```
+  $ sudo apt-add-repository ppa:ansible/ansible -y                     
+  $ sudo apt-get update && sudo apt-get install ansible -y
+```
+This will install ansible on your machine. To begin using pluribus-ansible modules or develop modules for pluribus-ansible, clone this repository in your ansible directory.
+
+```
+~$ cd /etc/ansible
+~:/etc/ansible$ git clone <url>
+~:/etc/ansible$ cd pluribus-ansible
+~:/etc/ansible/pluribus-ansible$ git checkout -b <your branch>
+```
+
+Now you can begin working on your branch.
+
+#NOTE: 
+Checklist:
+  1. Make sure you set the library path to point to your library directory in the `ansible.cfg` file.
+  2. Disable host key checking in `ansible.cfg` file. If required, establish SSH keys.
+  3. Make any required configuration changes.
+ 
+## Index
++ [Directory Layout](#directory-layout)
++ [Configuration File](#configuration-file)
++ [Inventory File](#inventory-file)
++ [Group and Host variables](#group-and-host-variables)
++ [Playbooks](#playbooks)
++ [Module Development](#modules)
+
+# Directory Layout
+  This section tries to explains a typical directory structure for organizing contents of your project.
+  The top level of the directory would contain files and directories like:
+```
+  /path/to/ansible/
+  |-main.yml
+  |-hosts
+  |-library/
+   '--pn_show.py
+  |-group_vars/
+  |-host_vars/
+  |-roles/
+```
+  `group_vars`, `host_vars`, `roles` provide scalability, reusability and better code organization.
+
+# Configuration File
+  Custom changes to the ansible workflow and how it behaves are made through the configuration file. If you installed ansible from a package manager, the `ansible.cfg` will be present in `/etc/ansible` directory. If it is not present, you can create one to override default settings. Although the default settings should be sufficient for most of the purposes, you may need to change some of the settings based on your requirements.
+  The default configuration file can be found here: [ansible.cfg](../ansible.cfg)
+
+  Changes in relation to configuration are processed and picked up in the the following order:
+```
+  1. * ANSIBLE_CONFIG (an environment variable)
+  2. * ansible.cfg (in the current directory)
+  3. * .ansible.cfg (in the home directory)
+  4. * .ansible.cfg (in /etc/ansible/ansible.cfg)
+```
+  An example directive from the config file:
+```
+  #inventory = /etc/ansible/hosts
+```
+  This line is to assign a different directory for a custom hosts file location. Remember to remove the `#` symbol to uncomment.
+
+# Inventory File
+  Inventory is a list of hosts, assembled into groups, on which you will run your ansible playbooks. Ansible works against multiple hosts in your infrastructure simultaneously. It does this by selecting a group of hosts listed in Ansible’s inventory file. Ansible has a default inventory file used to define which hosts it will be managing. After installation, there's an example one you can reference at `/etc/ansible/hosts`.
+  Copy and move the default [hosts]() file for reference:
+```
+  $ sudo mv /etc/ansible/hosts /etc/ansible/hosts.orig
+  $ sudo vim /etc/ansible/hosts
+```
+  Note: You can place the `hosts` file in your current working directory and change the inventory path in the `ansible.cfg` file.
+
+  Here is an example of inventory file located in the ansible working directory ~/ansible/hosts
+```
+  mail.example.com
+
+  [webservers]
+  foo.example.com
+  bar.example.com
+
+  [dbservers]
+  serverone.example.com
+  servertwo.example.com
+  serverthree.example.com
+```
+  Ansible automatically puts all the hosts in a group called **`all`**.
+  Group names are enclosed in brackets `[]` and are used to classify hosts based on purpose.
+  A host can be a part of multiple groups or none. There can be multiple inventory files and they can also be dynamic.
+  Please refer: [Ansible-Inventory](https://docs.ansible.com/ansible/intro_inventory.html) for more on this.
+
+# Group and Host variables
+  Ansible allows you to have different inventory files for different environments. These inventory files contain various host classified into different groups based on environment, geographic location, scope etc. These groups and hosts can be associated with variables relative to the inventory file. Please refer: [Ansible-vars] (http://docs.ansible.com/ansible/playbooks_best_practices.html#how-to-differentiate-staging-vs-production) for more on this.
+
+# Roles
+  Roles are a way to automatically load certain vars_files, tasks and handlers based on the file structure. Roles are good for organizing multiple, related Tasks and encapsulating data needed to accomplish those Tasks. A role contains various optional directories besides `tasks` and each sub-directory contains an entrypoint `main.yml`. The other directories can be handlers, defaults, templates and files.
+
+  - `tasks`: You can include a list of tasks that you would implement across different plays and playbooks in `tasks/main.yml` and include them in your main playbook using `include` directive.
+  - `handlers`: A handler is exactly similar to Task, but it will run only when called by another task(similar to an event system). This is useful to run secondary tasks that might be required after running a task. Ths is achieved using the `notify` directive in the parent task.
+  - `defaults`: This contains defaults for variables used in the roles.
+  - `files`:
+  - `templates`:
+
+# Modules
+  Ansible modules are reusable piece of code that can be invoked using the ansible API or through the Ansible playbook. Although Ansible modules can be written in any language, Python is the preferred choice. The Ansible module should be capable of handling different arguments, return statuses, errors and failures. This can be achieved by the **AnsibleModule** boilerplate which provides an efficient way to handle arguments and return statuses.
+
+## AnsibleModule boilerplate
+  All you need to do is import `ansible.module_utils.basic`
+  Put the import function at the end of your file and include your actual module body inside the conventional `main` function.
+```
+from ansible.module_utils.basic import AnsibleModule
+if __name__ == '__main__':
+    main()
+```
+
+  Module class can be instantiated as follows:
+```
+def main():
+    module = AnsibleModule(
+        argument_spec = dict(
+            state     = dict(default='present', choices=['present', 'absent']),
+            name      = dict(required=True),
+            enabled   = dict(required=True, type='bool'),
+            something = dict(aliases=['whatever'])
+        )
+    )
+```
+  As you can see, the **AnsibleModule** boilerplate allows you to specify if the arguments are optional or required, set default values. It also handles different data types.
+
+##  Interaction between parameters:
+   The **AnsibleModule** boilerplate also offers interaction between the arguments. It allows you to specify if certain arguments are mutually exclusive or required together. An argument can be `required` or `optional`. You can set `default` values to optional arguments. Also, the possible inputs to a particular argument can be restricted using `choice` keyword.
+```
+    module = AnsibleModule(
+        argument_spec=dict(
+            state     = dict(default='present', choices=['present', 'absent']),
+            name      = dict(required=True),
+            enabled   = dict(required=True, type='bool'),
+            something = dict(aliases=['whatever']),
+            argument1 = dict(type='str'),
+            argument2 = dict(type='str')
+        ),
+        mutually_exclusive=[
+            [ "argument1", "argument2"]
+        ],
+        required_together=[
+            [ "name", "state"]
+        ],
+        required_one_of=dict=[
+            ["state", "something"]
+        ],
+        required_if=[
+            ["state", "present", ["enabled", "argument1", "something"],
+            ["state", "absent", ["enabled", "argument2"]
+        ]
+    )
+```
+  `mutually_exclusive` - takes a list of lists and ech embedded list consists of parameters which cannot appear together.
+  `required_together` - all the specified parameters are required together
+  `required_one_of` - at least one of the specified parameters is required
+  `required_if` - it checks the value of one parameter and if that value matches, it requires the specified parameters to be present as well.
+
+##  Accessing the arguments:
+   Ansible provides an easy way to access arguments from the module instance.
+```
+    state = module.params['state']
+    name = module.params['name']
+    enabled = module.params['enable']
+    something = module.params['something']
+    argument1 = module.params['argument1']
+    argument2 = module.params['argument2']
+```
+
+  Modules must output valid JSON. **AnsibleModule** boilerplate has a common function, `module.exit_json` for JSON format output. Successful returns are made using:
+```
+    module.exit_jason(
+        changed = True,
+        stdout = response
+    )
+
+    or
+
+    module.exit_json(
+        changed = False,
+        stdout = response
+    )
+```
+  Failures are handled in a similar way:
+```
+    module.fail_json(
+        changed = False,
+        msg="Something Failed!"
+     )
+```
+
+##  Documentation:
+   All modules must be documented. The modules must include a `DOCUMENTATION` string. This string must be a valid **YAML** document.
+```
+    #!/usr/bin/python
+    # Copyright/License header
+
+    DOCUMENTATION = '''
+    ---
+    module: modulename
+    short_description: A sentence describing the module
+    # ... snip...
+    '''
+```
+
+  The description field supports formatting functions such as `U()`, `M()`, `I()` and `C()` for URL, module, italics and constant width respectively. It is suggested to use `C()` for file and option names, `I()` when referencing parameters, and `M()` for module names.
+
+##  Examples:
+   Example section must be written in plain text in an `EXAMPLES` string within the module.
+
+```
+    EXAMPLES = '''
+    - action: modulename opt1=arg1 opt2=arg2
+```
+
+##  Return:
+   The `RETURN` section documents what the module returns. For each returned value, provide a `description`, in what circumstances the value is `returned`, the `type` of the value and a `sample`.
+```
+    RETURN = '''
+    - return_value:
+        description: short description for the returned value
+        returned:
+        type:
+        sample:
+    '''
+```
+
+# Playbooks
+   The real strength of Ansible lies in Playbooks. A playbook is like a recipe or instruction manual which tells ansible what to do when it connects to each machine. Playbooks are expressed in YAML format and have a minimum of syntax. Each playbook is composed of one or more plays. The goal of a play is to map a group of hosts to some well defined tasks. A task is basically a call to ansible module. The good thing about playbooks is that there is no defined format, you can write a playbook in different ways. You can organize plays, tasks in different ways. You can also add modularity with the help of `roles`. 
+     
+  Here is an example of a playbook to run `vlan-show`:
+```
+    ---
+    - name: "This Playbook is to view Vlan configurations."
+      hosts: spine
+      user: network-admin
+      
+      tasks:
+      - pn_show: username=network-admin password=admin pn_showcommand=vlan-show pn_showformat=switch,id,desc pn_quiet=True
+      register: vlan_show_output
+      - debug: var:vlan_show_output
+```
+
+   A few things to note:
+
+   - Nearly every YAML file starts with a list. Each item in the list is a list of key/value pairs, commonly called a “hash” or a “dictionary”.
+   - All YAML files can optionally begin with `---` and end with `...`. This is part of the YAML format and indicates the start and end of a document.
+   - It is possible to leave off the ‘name’ for a given task, though it is recommended to provide a description about why something is being done instead. This name is shown when the playbook is run.
+   - Generous use of whitespace to break things up, and use of comments (which start with ‘#’), is encouraged.
+   - All members of a list are lines beginning at the same indentation level starting with a `- ` (a dash and a space).
+   - [YAML Lint](#http://www.yamllint.com/) can help you debug YAML syntax.
+  
+## The Following Modules are supported with Software release 2.4.1:
+   - LAG
+   - vLAG
+   - VLAN
+   - Port Configuration
+   - vRouters
+   - VRRP
+   - BGP
+   - OSPF
+   - Pluribus CLI as a parameter (allows to configure any new feature)
+
+   
+   The official [Ansible doc](#http://docs.ansible.com/ansible/playbooks.html) provides more information on Playbooks and YAML. 
+
+
+
+
+
  

@@ -1,5 +1,0 @@
-99, 99.99.1.0/24, gui-leaf1, gui-leaf2, 19, gui-leaf1
-101, 101.108.101.0/24, gui-leaf1, gui-leaf2, 19, gui-leaf1
-102, 101.108.102.0/24, gui-leaf1, gui-leaf2, 19, gui-leaf1
-104, 101.108.104.0/24, gui-leaf3
-103, 101.108.103.0/24, gui-leaf4

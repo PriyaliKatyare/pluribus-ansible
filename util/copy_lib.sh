@@ -13,14 +13,30 @@
 UNAME="pluribus"
 HOSTPATH="ansible/playbooks/hosts"
 
-echo -n "Enter Password for $UNAME: "
-read PASS
+case "$1" in
+    -p|--password)
+	PASS=$2
+	;;
+    *)
+	echo -n "Enter Password for $UNAME: "
+	read -s PASS
+	;;
+esac
+
+echo "Generating library file"
+rm AG_pn_ansible_lib.py
+python generate_python_wrappers.py > tmp
+cat ansible/library/pn_ansible_lib.py tmp > AG_pn_ansible_lib.py
+rm tmp
 
 grep -o '[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' $HOSTPATH | while read -r line; do
     echo "removing old pn_ansible_lib.py from $UNAME@$line"
+    echo $PASS | ssh -tt $UNAME@$line sudo rm /usr/lib/python2.7/pn_ansible_lib.py > /dev/null 2>&1
+    echo $PASS | ssh -tt $UNAME@$line sudo rm /usr/lib/python2.7/pn_ansible_lib.pyc > /dev/null 2>&1
+    
     echo "pushing pn_ansible_lib.py to $UNAME@$line"
-    scp ansible/library/pn_ansible_lib.py $UNAME@$line:~
-    echo $PASS | ssh -tt $UNAME@$line sudo -S cp pn_ansible_lib.py /usr/lib/python2.7/pn_ansible_lib.py
+    scp AG_pn_ansible_lib.py $UNAME@$line:~ > /dev/null 2>&1
+    echo $PASS | ssh -tt $UNAME@$line sudo -S cp AG_pn_ansible_lib.py /usr/lib/python2.7/pn_ansible_lib.py > /dev/null 2>&1
 done
 
 echo "Done"

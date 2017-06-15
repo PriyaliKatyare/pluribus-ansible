@@ -111,4 +111,3 @@ onie image version=2.5.1-10309 #In case of online version
 8c:89:a5:f4:28:2f,10.9.1.2,lapras,leaf
 8c:89:a5:f4:23:1f,10.9.1.3,,spine
 8c:89:a5:f3:28:2e,10.9.1.4,gyarados,,
-
