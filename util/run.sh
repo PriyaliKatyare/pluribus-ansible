@@ -22,8 +22,9 @@
 
 FILE=$1
 UNAME="pluribus"
-LIBPATH="ansible/library"
-PLAYPATH="ansible/playbooks"
+COMPATH="../ansible/common"
+LIBPATH="../ansible/library"
+PLAYPATH="../ansible/playbooks"
 HOSTPATH="$PLAYPATH/hosts"
 KEEPFLAG=0
 IP='10.9.21.106'
@@ -44,29 +45,30 @@ case "$2" in
 	./copy_lib.sh -p $PASS
 	;;
     *)
-	# Check that pn_ansible_lib hasn't been updated. If it has make a temp
-	# file and generate a new wrapper file
-	OLD=$(sum ._pal.tmp.py | awk '{print $1,$2}')
-	NEW=$(sum $LIBPATH/pn_ansible_lib.py | awk '{print $1,$2}')
-	if [ "$OLD" != "$NEW" ]
-	then
-	    cp $LIBPATH/pn_ansible_lib.py ._pal.tmp.py
-	    python generate_python_wrappers.py > AG_pn_ansible_lib.py
-	    ./copy_lib.sh -p $PASS
-	else
-	    # Check that the library file on the remote is up to date. If it
-	    # isn't then update the remote library function
-	    sum AG_pn_ansible_lib.py > loc.t
-	    echo test123 | ssh -tt pluribus@$IP > /dev/null 2>&1 sum /usr/lib/python2.7/pn_ansible_lib.py > rem.t
-	    LOC=$(cat loc.t | awk '{print $1,$2}')
-	    REM=$(tail -1 rem.t | awk '{print $1,$2}' | sed "s/$(printf '\r')\$//" | sed "s/^0//")
-	    rm loc.t
-	    rm rem.t
-	    if [ "$LOC" != "$REM" ]
-	    then
-		./copy_lib.sh -p $PASS
-	    fi
-	fi
+	# # Check that pn_ansible_lib hasn't been updated. If it has make a temp
+	# # file and generate a new wrapper file
+	# OLD=$(sum ._pal.tmp.py | awk '{print $1,$2}')
+	# NEW=$(sum $COMPATH/pn_ansible_lib.py | awk '{print $1,$2}')
+	# if [ "$OLD" != "$NEW" ]
+	# then
+	#     cp $COMPATH/pn_ansible_lib.py ._pal.tmp.py
+	#     python generate_python_wrappers.py > AG_pn_ansible_lib.py
+	#     ./copy_lib.sh -p $PASS
+	# else
+	#     # Check that the library file on the remote is up to date. If it
+	#     # isn't then update the remote library function
+	#     sum AG_pn_ansible_lib.py > loc.t
+	#     echo test123 | ssh -tt pluribus@$IP > /dev/null 2>&1 sum /usr/lib/python2.7/pn_ansible_lib.py > rem.t
+	#     LOC=$(cat loc.t | awk '{print $1,$2}')
+	#     REM=$(tail -1 rem.t | awk '{print $1,$2}' | sed "s/$(printf '\r')\$//" | sed "s/^0//")
+	#     rm loc.t
+	#     rm rem.t
+	#     if [ "$LOC" != "$REM" ]
+	#     then
+	# 	./copy_lib.sh -p $PASS
+	#     fi
+	# fi
+	;;
 esac
 
 ansible-playbook $PLAYPATH/$1.yml -i $HOSTPATH -u $UNAME -K --ask-pass --ask-vault-pass -vvv
