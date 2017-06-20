@@ -4,12 +4,13 @@ PN Ansible Library
 
 import shlex
 
+
 def calc_link_ip_addr(addr, cidr, supernet):
     """
     Calculates link IP addresses for layer 3 fabric.
-    :param addr:
-    :param cidr:
-    :param supernet:
+    :param addr: The base IP address for the link IPs
+    :param cidr: The CIDR number for IP allocation
+    :param supernet: The supernet of the allocated IP addresses.
     :return: A list of all avaliable IP addresses that can be assigned to the
     vrouter interfaces for the layer 3 fabric.
     """
@@ -93,8 +94,8 @@ class PnCli(object):
 
         if not prefix:
             self.prefix = '/usr/bin/cli --quiet'
-            if ('pn_cliusername' in module.params) and \
-               ('pn_clipassword' in module.params):
+            if (('pn_cliusername' in module.params) and
+                    ('pn_clipassword' in module.params)):
                 self.prefix += ' --user %s:%s ' % (
                     module.params['pn_cliusername'],
                     module.params['pn_clipassword'])
@@ -130,7 +131,6 @@ class PnCli(object):
         :return: The output sent back by the CLI
         """
 
-        # TODO: Check for error instead of output
         command = shlex.split(self.gen_command(command))
         out, err = self.module.run_command(command)[1:]
 
@@ -200,7 +200,7 @@ class PnCli(object):
 
         if status_int is 0 or status_int is 1:
 
-            if status is 1:
+            if status_int is 1:
                 change = True
 
             # Return statement not necessary, however it makes unit testing much
@@ -217,23 +217,3 @@ class PnCli(object):
             msg=message,
             **kwargs
         )
-
-    # ==--------------------------------------------------------------------== #
-    #
-    # Utility Methods
-    #
-    # ==--------------------------------------------------------------------== #
-
-    def auto_accept_eula(self):
-        """
-        Accepts the EULA when Ansible logs into a new switch. This method is
-        referenced from the auto_accept_eula in pn_initial_ztp.py
-        :return: The output from the cli command sent to the target.
-        """
-
-        if 'pn_clipassword' not in self.module.params:
-            self.send_exit(5, "Could not accept EULA, no password supplied")
-
-        return self.send_command("--skip-setup --script-password "
-                                 "switch-setup-modify password %s eula-accepted"
-                                 " true" % self.module.params['pn_clipassword'])
