@@ -1,0 +1,315 @@
+Module Name: pn_ebgp_ospf_thirdparty
+
+Description:
+The third party modules assumes that we are using the leafs switches of Pluribus and the spines are not of pluribus. So, we configure only the leafs with the automation.
+This module is extension of pn_l3_ztp_thirdparty module. This module configures routing protocol between the vrouter-interfaces already created in the pn_l3_ztp_thirdparty module in the leaf switches.
+As this module is a third-party module, it configures routing protocol for the leaf-interfaces only.
+This module does the following steps:
+
+       - Assign router_id
+       - Create leaf_cluster
+        EBGP:
+          - Assigning BGP_AS, BGP_REDISTRIBUTE, BGP_MAXPATH
+          - Assign eBGP_neighbor
+          - Add iBGP neighbor for clustered leaf
+        OSPF:
+          - Assign OSPF_neighbor for leaf cluster
+          - Assign OSPF_neighbor
+          - Assign OSPF_redistribute
+
+Input: 
+User provides following inputs to this module.
+1. pn_cliusername: Username to use to login into cli.
+2. pn_clipassword: Password to use for above username to login into cli.
+3. pn_spine_list: List of spine switches.
+4. pn_leaf_list: List of leaf switches.
+5. pn_routing_protocol: Routing protocol to configure. Choices are ['ebgp', 'ospf']
+
+# <<< Following attributes are needed for eBGP
+6. pn_bfd: Flag to indicate if BFD config should be added to eBGP/ospf. Default: False.
+7. pn_bgp_maxpath: BGP-MAXPATH value to be assigned to vrouters. Default: 16
+8. pn_bgp_redistribute: BGP-REDISTRIBUTE value to be assigned to vrouters. Chocies: none, static, connected, rip, ospf. Default: connected
+9. pn_bgp_as_range: BGP-AS-RANGE value to be assigned to vrouters. Default: 65000
+10. pn_ibgp_ip_range: iBGP IP range to be assigned to interfaces. Default: '75.75.75.0/24'
+11. pn_ibgp_vlan: iBGP vlan value to be assigned to interfaces. Default 4040
+# >>> eBGP parameters end here
+
+# <<< Following attributes are needed for OSPF 
+12. pn_ospf_area_id: Area id to configure for ospf. Default: 0
+13. pn_iospf_ip_range: Ip range for creating the interface between leaf clusters. Default:'75.75.75.0/24'
+14. pn_iospf_vlan: Vlan for creating the interface between leaf clusters. Default:'4040'
+# >>> OSPF parameters end here
+
+
+Steps/Commands:
+
+1. Find all the vrouters(in leafs) already created through other modules like l3-vrrp third party and l3-ztp third party 
+Command: vrouter-show format name no-show-headers
+
+NOTE: The vrouter list found in this step is used in various other functions in this module
+
+
+2. Assign router id to the routers. The loopback ip assigned in l3-ztp module is used as the router id. For that we perform the following steps sequentially:
+   2.a. Find the loopback ip assigned
+          Command: vrouter-loopback-interface-show vrouter-name %s format ip no-show-headers
+   2.b. Assign the loopback ip from step 2.a. as router-id
+          Command: vrouter-modify name %s router-id %s
+          Output msg: Added router id %s to %s
+
+
+3. Create leaf clusters if 2 leafs are directly connected. The following steps are performed:
+
+   3.a. Find all the leafs which are not in cluster currently. (l3-vrrp may have formed some leaf clusters)
+          i) Find all the cluster nodes already present in some cluster.(l3-vrrp may have formed some leaf clusters)
+             Command: cluster-show format cluster-node-1,cluster-node-2
+          ii) Find the difference of the leaf-list and cluster-node-list(@ref point 3.a.i) to get the non-cluster-leaf-list
+
+   3.b. Select a leaf(switch_1) from the non-cluster-leaf-list(obtained above), and remove it from the non-cluster-leaf-list.
+        Now, we find the switches directly connected to the selected leaf(switch_1) as follow:
+         i) Find the directly connected nodes
+            Command: switch %s lldp-show format sys-name
+         ii) Find all the switches in the fabric
+             Command: switch %s fabric-node-show format name
+         iii) Find the difference between the list from i and ii and store in a list. This step is performed to remove all the external boxes other than the switches in the fabric.
+    
+   3.c. For the selected leaf(switch_1), we do the following check:
+             If any switch(switch_2) from the list obtained in 3.b. is in the non-cluster-leaf-list obtained in step 3.a.:
+                 Form cluster between the two switches(switch_1 & switch_2) and remove this switch(switch_2) from the non-cluster-leaf-list
+
+              i) Cluster is formed using the following command:
+                 Command: switch %s cluster-create name %s cluster-node-1 %s cluster-node-2 %s
+                 Output msg: ‘Created %s’
+                     To create the name of the cluster, following step is done:
+                     name = leaf_switch_1 + ‘-to’ + leaf_switch_2 + ‘-cluster’
+                     (NOTE: There is an action item to strip off the last characters from the name if that exceeds the limit for the cluster name.)
+
+   3.d. Steps 3.b. and 3.c. are repeated until the non-cluster-leaf-list is empty. Now we have all the clusters.
+
+
+4. Implement the routing protocol based on the input from the user. The variable called ‘pn_routing_protocol’ is used to get the protocol name from the user. It can be ebgp or ospf.
+
+    If the routing protocol is ebgp, then follow steps 5-8
+    If the routing protocol is ospf, then follow steps 9-12
+
+
+EBGP IMPLEMENTATION:
+
+5. Make a dictionary to store BGP-AS num for all the switch. Initial value for BGP-AS range is taken as input from the user and used as follow:
+   5.a. The BGP AS given by user is supposed to be used as the BGP AS for all the spines but we are assuming that we don’t have spines here. We increment the user-given BGP-AS and start assigning it to the leafs as done in the substeps below.
+   5.b. We find all the clusters. Then we find nodes in the each cluster and assign incremental values of BGP-AS to the nodes in the cluster.
+        The leafs in the same cluster are assigned same BGP AS number.
+            Commands: cluster-show format name no-show-headers
+                                 cluster-show name %s format cluster-node-1,cluster-node-2 no-show-headers
+   5.c. All the remaining leafs which are not the part of the cluster are assigned incremental values of BGP-AS now.
+
+
+6. Configure extra parameters for ebgp like bgp-as, bgp-maxpath value and bgp-redistribute values for each vrouter(obtained from step 1):
+Command: vrouter-modify name %s bgp-as %s bgp-max-paths %s bgp-redistribute %s
+    bgp-maxpath and bgp-redistribute values are taken from user as input
+    bgp-as value is taken from the dictionary from step 5
+
+
+7. Add ebgp neighbors as follows:
+
+   Start a loop which performs the following steps for every leafs:
+
+   7.a. Find the vrouter in the leaf.
+          Command: vrouter-show location %s format name no-show-headers
+          Output: vrouter
+
+   7.b. Find all the l3-port in the leaf_vrouter(@ref 7.a.) if a vrouter-interface is present over that l3-port
+           Command: vrouter-interface-show vrouter-name %s format l3-port no-show-headers
+           Output: port list
+
+      For every port in the port list obtained in 7.b., perform the following the subtasks:
+
+      7.c. We take the initial BGP-AS value from the user and it is supposed to be BGP-AS value to be assigned to the spines. So, as we are configuring ebgp only in leaf switches, the REMOTE-AS will be the same as the value given by the user.
+
+      7.d. Find the ip of the vrouter-interface associated with the leaf vrouter(@ref 7.a.) and the port
+            Command: vrouter-interface-show vrouter-name %s l3-port %s format ip no-show-headers
+
+      7.e. Process the obtained ip(@ref 7.d.) to get the ip assigned to vrouter-interface ip in the spine.
+           We have the assumption that if 10.0.0.1 is assigned to a interface in leaf then 10.0.0.2 will be assigned to a interface in spine.
+             So, after getting the ip from the step 7.d. we can find spine ip as remote-ip for ebgp.
+
+      7.f. Add bgp for leaf
+            Command: vrouter-bgp-add vrouter-name %s neighbor %s remote-as %s
+                   NOTE: If pn_bfd variable is set by the user then include the word ‘bfd’ in the command
+                               If the leaf is a part of any cluster then include ' weight 100 allowas-in ' in the command
+             Output msg: Added BGP Neighbor %s for %s
+
+
+8. Add ibgp neighbors. The neighborship is to be formed between the leafs switches which are in cluster as follows:
+
+   8.a. Get the cluster list
+          Command: cluster-show format name no-show-headers
+          Output: cluster_list
+
+   Find the nodes in each cluster. If the cluster is formed using the leaf switches then follow the following sub-steps:
+
+   8.b. Process the iBGP IP RANGE obtained from the user. The ips should be divided in the subnet of 30. So, we have 2 usable ips in each subnet.
+
+          The first ip is used as interface ip for the first node in the cluster and the second ip is used as the remote ip for ibgp neighborship.
+           Similarly, The second ip is used as interface ip for second node in the cluster and the first ip is used as the remote ip for ibgp neighborship.
+           eg: ibgp_ip_range: 172.168.0.1/24
+                 Interface ip for first node: 172.168.0.1/30
+                 Remote ip to form the neighborship: 172.168.0.2
+                 Interface ip for second node: 172.168.0.2/30
+                 Remote ip to form the neighborship: 172.168.0.1
+
+   For each node in the cluster, follow the following substeps:
+
+   8.c. Make the vlan using the ibgp vlan_id given by user:
+          Command: switch %s vlan-create id %s scope local
+          Output: ‘Created vlan with id %s’
+
+   8.d. Find the vrouter in the cluster leaf switch
+          Command: vrouter-show location %s format name
+
+   8.e. Create the vrouter interface using ibgp interface ip from step 8.b.
+          Command: vrouter-interface-add vrouter-name %s ip %s vlan %s
+          Output msg: ‘Added vrouter interface with ip %s on %s’
+
+   8.f. Add the vrouter ibgp neighbor using the remote ip from step 8.b.
+         Command: vrouter-bgp-add vrouter-name %s neighbor %s remote-as %s next-hop-self
+         Output: ‘Added iBGP neighbor %s for %s’
+
+
+OSPF IMPLEMENTATION:
+
+9. Made a dictionary to store the area-id of the leaf-switches to be assigned to them. Initial area-id is taken as input from the user and used as follow:
+   NOTE: The nodes in the same cluster will have same area-id.
+
+   9.a. We find all the clusters. Then we find nodes in the each cluster and assign incremental values of AREA-ID to the nodes in the cluster. The nodes in the same cluster will have same AREA-ID.
+            Commands: cluster-show format name no-show-headers
+                                 cluster-show name %s format cluster-node-1,cluster-node-2 no-show-headers
+   9.b. All the remaining leafs which are not the part of the cluster are assigned incremental values now.
+
+
+10. Add ospf neighbors as follows:
+
+   Start a loop which performs the following steps for every leaf:
+
+   10.a. Find the vrouter in the leaf.
+          Command: vrouter-show location %s format name no-show-headers
+          Output: vrouter_leaf
+
+   10.b. Take the area-id of the leaf from the dictionary containing the AREA-ID (@ref 9)
+
+   10.c.. Find all the l3-port in the leaf_vrouter(@ref 10.a.) if a vrouter-interface is present over that l3-port
+                Command: vrouter-interface-show vrouter-name %s format l3-port no-show-headers
+                Output: port list
+
+      For every port in the port list obtained in 10.b., perform the following the subtasks:
+
+      10.d.. Find the ip of the vrouter-interface associated with the leaf vrouter(@ref 10.a.) and the port
+            Command: vrouter-interface-show vrouter-name %s l3-port %s format ip no-show-headers
+
+      10.e. Process the obtained ip(@ref 10.d.) to find the ospf-network.
+            We have the assumption that if 10.0.0.1 is assigned to a interface in the leaf then 10.0.0.2 will be assigned to a interface in the spine.
+              So, after getting the ip from the step 10.h.,we can find the ospf-network as follow:
+              e.g.: if the spine-interface ip is 172.168.0.6
+                      leaf-interface ip is 172.168.0.5
+                      ospf-network is 172.168.0.4
+
+      10.f. Add ospf for leaf
+
+             i) If pn_bfd variable is set then configure bfd as follows(The value of pn_bfd is given by user (True/False)):
+                   I) Find out the nic id of the vrouter-interface associated with the leaf_vrouter(@ref 10.a.) and leaf-interface ip(@ ref 10.e.)
+                       Command: vrouter-interface-config-show vrouter-name %s nic %s format ospf-bfd no-show-headers
+
+                  II) Get the ospf-status
+                       Command: vrouter-interface-config-show vrouter-name %s nic %s format ospf-bfd no-show-headers
+
+                 III) Perform the following algorithm based on the value of the ospf-status(@ref II)
+                             if the ospf-status is empty then:
+                                 Command: vrouter-interface-config-add vrouter-name %s nic %s ospf-bfd enable
+                                 Output msg: ‘Added OSPF BFD config to %s’
+                             else if ospf-status is not enable:
+                                  Command: vrouter-interface-config-modify vrouter-name %s nic %s ospf-bfd enable
+                                  Output msg: ‘Enabled OSPF BFD for %s’
+                             else:
+                                  Output msg: ‘Empty string’
+             
+             ii) Fire the ospf neighbourship add command:
+                     Command: vrouter-ospf-add vrouter-name %s network %s ospf-area %s
+                     Output msg: Added OSPF Neighbor %s for %s
+
+
+11. Configure ospf redistribute. For every vrouter(@ref 1), we have configured ospf-redistribute as static,connected.
+     Command: vrouter-modify name %s' % vrouter ospf-redistribute static,connected
+     Output msg: ‘Added ospf_redistribute to %s’
+
+
+12. Add ospf-neighborship between the nodes in the leaf cluster(similar to iBGP). The neighborship is to be formed between the leafs switches which are in cluster as follows:
+
+   12.a. Get the cluster list
+          Command: cluster-show format name no-show-headers
+          Output: cluster_list
+
+   Find the nodes in each cluster. If the cluster is formed using the leaf switches then follow the following sub-steps:
+
+   12.b. Process the OSPF IP RANGE for ospf-neighborship in leaf-cluster obtained from the user. The ips should be divided in the subnet of 30. So, we have 2 usable ips in each subnet.
+
+          The first ip is used as interface ip for the first node in the cluster and the second ip is used as the remote ip for ibgp neighborship.
+           Similarly, The second ip is used as interface ip for second node in the cluster and the first ip is used as the remote ip for ibgp neighborship.
+           And the network with subnet of 30 is used as the ospf-network address.
+           eg: ibgp_ip_range: 172.168.0.0/24
+                 Ospf_network: 172.168.0.0/30
+                 Interface ip for first node: 172.168.0.1/30
+                 Remote ip to form the neighborship: 172.168.0.2
+                 Interface ip for second node: 172.168.0.2/30
+                 Remote ip to form the neighborship: 172.168.0.1
+
+   For each node in the cluster, follow the following substeps:
+
+   12.c. Make the vlan using the vlan_id given by user:
+          Command: switch %s vlan-create id %s scope local
+          Output: ‘Created vlan with id %s’
+
+   12.d. Find the vrouter in the cluster leaf switch
+          Command: vrouter-show location %s format name
+
+   12.e. Create the vrouter interface using interface ip from step 12.b.
+          Command: vrouter-interface-add vrouter-name %s ip %s vlan %s
+          Output msg: ‘Added vrouter interface with ip %s on %s’
+
+    12.f. Add ospf
+
+             i) If pn_bfd variable is set then configure bfd as follows(The value of pn_bfd is given by user (True/False)):
+                   I) Find out the nic id of the vrouter-interface associated with the vrouter(@ref 12.d.) and spine ip(@ ref 12.b.)
+                       Command: vrouter-interface-config-show vrouter-name %s nic %s format ospf-bfd no-show-headers
+
+                  II) Get the ospf-status
+                       Command: vrouter-interface-config-show vrouter-name %s nic %s format ospf-bfd no-show-headers
+
+                 III) Perform the following algorithm based on the value of the ospf-status(@ref II)
+                             if the ospf-status is empty then:
+                                 Command: vrouter-interface-config-add vrouter-name %s nic %s ospf-bfd enable
+                                 Output msg: ‘Added OSPF BFD config to %s’
+                             else if ospf-status is not enable:
+                                  Command: vrouter-interface-config-modify vrouter-name %s nic %s ospf-bfd enable
+                                  Output msg: ‘Enabled OSPF BFD for %s’
+                             else:
+                                  Output msg: ‘Empty string’
+             
+             ii) Fire the ospf neighbourship add command:
+                     Command: vrouter-ospf-add vrouter-name %s network %s ospf-area %s
+                     Output msg: Added OSPF Neighbor %s for %s
+
+
+Output/Return:
+This module return following fields in JSON format.
+1. summary: Contains output of each configuration/commands along with switch name on which it got executed. In case of failure, this will contain a message, 'Operation failed: %s', with failed command replacing %s.
+2. changed: Indicates whether the CLI caused changes on switches, using True/False.
+3. unreachable: Indicates whether switch was unreachable to connect, using True/False.
+4. failed: Indicates whether the execution of commands failed on switches, using True/False.
+5. exception: Describe error/exception occurred during execution of commands.
+6. task: 'CLI commands to configure eBGP/OSPF thirdparty zero touch provisioning'
+7. msg: On success: 'eBGP/OSPF thirdparty ZTP configuration executed successfully'
+On failure: 'eBGP/OSPF thirdparty ZTP configuration failed'
+On ssh connection error: 'Failed to connect to host via ssh: ssh: connect to host %s port 22: No route to host' (Note: %s will get replaced by the mgmt ip of unreachable switch)
+On exception failure: 'Unexpected failure during module execution'
+On incorrect login credentials: 'MODULE FAILURE'
+
+Note: On success, summary field is of primary importance, as it shows what configuration has happened on each switch and on failure, msg field provides exact details on why it failed.

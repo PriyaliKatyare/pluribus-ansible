@@ -1,0 +1,183 @@
+Module Name: pn_ztp_vrrp_l3
+
+Description:
+This module is extension of pn_initial_ztp module to configure vrrp for Layer3 fabric. This module will create vrouter, vrouter-interface and vip interface in each switch using the input from a user-defined csv-file. Note: Demarcation line for l3 vrrp configuration is considered to be leafs.
+
+Input:
+User provides following inputs to this module.
+1. pn_cliusername: Username to use to login into cli.
+2. pn_clipassword: Password to use for above username to login into cli.
+3. pn_spine_list: List of spine switches.
+4. pn_leaf_list: List of leaf switches.
+5. pn_csv_data: VRRP layer3 data specified in csv file.
+
+
+Steps/Commands:
+This module performs following steps.
+(Note: %s values in below commands get substituted with appropriate values provided by the user or csv-file.)
+
+1. Create vrouter in spine switches
+Command: vrouter-create name %s vnet %s
+Output msg: ‘Created vrouter with name %s’
+
+   1.a. To get the vnet name, following steps are performed:
+           i) Get the fabric name using the following command:
+           Command: fabric-node-show format fab-name no-show-headers
+           ii) Get the value of vnet by appending ‘-global’ to fabric name as follow:
+            fabric_name + '-global'
+
+
+2. Parse the csv file which contains the configuration details for VRRP as shown below:
+   2.a. If the leaf switches are in cluster:
+          Format: vlan_id, vrrp_ip range, first leaf switch, second leaf switch, vrrp_id, active switch name
+          eg: 105, 101.108.105.0/24, sw15, sw02, 19, sw15.
+
+   2.b. If the leaf switch is not in cluster:
+          Format: vlan_id, vrrp_ip range, first leaf switch
+          eg: 106, 101.108.106.0/24, sw05
+
+   Description of each field:
+          i) vlan id: The first element of each row in the csv file. It is the vlan id to be used to create the vrrp interface.
+          ii) vrrp ip: The second element of each row in the csv file. It is the vrrp ip range to be used to create the vrouter-interfaces
+          iii) first leaf switch: The third element of each row in the csv file. It is the name of the switch for configuring vrrp interface(s).
+
+          iv) vrrp id: The hardware vrrp id to be used to create vrouter in the cluster leaf.
+          v) second leaf switch: The fifth element of each row in the csv file. It is the name of the second cluster switch for configuring vrrp interface(s).
+          vi) active switch: The sixth element of each row in the csv file. It is the name of the active spine switch.
+
+   NOTE: Consider iv, v, vi for the cases configuring vrrp in cluster leafs.
+               By cluster switches, we mean there is direct connectivity between the switches.
+
+   Demo CSV file is shown below:
+
+   102, 101.108.102.0/24, sw15, sw02, 19, sw15
+   105, 101.108.105.0/24, sw15, sw02, 19, sw15
+   104, 101.108.104.0/24, sw04
+   103, 101.108.103.0/24, sw08
+
+   NOTE: Anything line starting with ‘#’ in the csv file is considered as comment.
+
+
+3. Check for the number of elements in the line of the csv file:
+
+   If the no. of elements are greater than 5:
+       follow the steps 4-7  (considering that the vrrp is to be configured for cluster switches)
+   else:
+        follow the steps 8-10 (considering that the switch is a non-cluster leaf)
+
+   NOTE: By cluster switches, we mean there is direct connectivity between the switches.
+
+   KEY POINTS:  Extracted vlan id from csv file and stored it in variable vlan_id
+                            Extracted vrrp ip from csv file and stored it in variable vrrp_ip
+                            Extracted switch name from csv file and stored it in the variable leaf_switch_1
+                            Extracted vrrp id from the csv file and stored it in the variable vrrp_id
+                            Extracted second leaf switch name from the csv file and stored it in the variable leaf_switch_2
+                            Extracted active switch name from csv file and stored it in variable active_switch
+
+
+(FOR CLUSTER LEAF VRRP CONFIGURATION refer steps 4-7)
+(FOR NON-CLUSTER LEAF VRRP CONFIGURATION refer steps 8-10)
+
+
+(FOR CLUSTER LEAF VRRP CONFIGURATION:)
+
+
+4. Create cluster between leaf_switch_1 and leaf_switch_2(@ref point 3)
+Command: switch %s cluster-create name %s cluster-node-1 %s cluster-node-2 %s
+Output msg: ‘Created %s’
+
+   4.a. To create the name of the cluster, following step is done:
+           name = leaf_switch_1 + ‘-to’ + leaf_switch_2 + ‘-cluster’
+           (NOTE: There is an action item to strip off the last characters from the name if that exceeds the limit for the cluster name.)
+
+
+5. Create vlan using the vlan_id(@ref point 3)
+Command: vlan-create id %s scope fabric
+Output msg: ‘Created vlan id %s with scope fabric’
+
+
+6. Create vrouters in both the cluster switches extracted from the csv file i.e. leaf_switch_1 and leaf_switch_2(@ref point 3)
+Command: vrouter-create name %s vnet %s hw-vrrp-id %s enable
+Output: ‘Created vrouter with name %s’
+
+   6.a. To get the vnet name, same process is followed as done in point 1.a.
+   6.b. Vrouter name is formed by appending ‘-vrouter’ to the switch name
+   6.c. hw-vrrp-id is the vrrp_id(@ref point 3)
+
+   NOTE: If the vrouter is already created(in other modules) but the hw-vrrp-id is not assigned then use the following command to add the hw-vrrp-id:
+               Command: vrouter-modify name %s hw-vrrp-id %s
+
+
+7. Configure vrrp 
+For cluster switches leaf_switch_1 and leaf_switch_2(@ref point 3):
+   3 ips are formed using vrrp_ip(@ref point 3):
+   Vip: The vip constitute of ip with .1 in the last octet to make a vrouter-interface
+   Ip1: Ip for the active leaf with .2 in the last octet to make a vrouter-interface
+   Ip2: Ip for the non-active leaf with .3 in the last octet to make a vrouter-interface
+     eg: Let the vrrp_ip be 101.108.102.0/24 from the csv file then
+         Vip = 101.108.102.1
+         Ip1 = 101.108.102.2
+         Ip2 = 101.108.102.3
+
+   7.a. Create a vrouter-interface using the vlan id(vlan_id) from csv file in each of the cluster leaf
+        Command: switch %s vrouter-interface-add vrouter-name %s ip %s vlan %s if data
+          vlan is the vlan_id from the csv file
+          ip is Ip1(from above) if switch is active switch otherwise Ip2
+        Output msg: 'Added vrouter interface with ip %s on %s'
+
+   7.b. Find out the nic of the interface added in point 7.a.
+        Command: vrouter-interface-show vrouter-name %s ip %s vlan %s format nic
+          vlan is the vlan_id from the csv file
+
+   7.c. Create a vrrp interface in each of the cluster-leaf
+        Command: switch %s vrouter-interface-add vrouter-name %s ip %s vlan %s if data vrrp-id %s vrrp-primary %s vrrp-priority %s
+          vrrp-priority is '110' if the spine is active switch else '100’
+          vrrp-primary is the nic from point 7.b.
+          vrrp-id is the vrrp_id from csv file
+          vlan is the vlan_id from the csv file
+          vrouter-name is the vrouter in the respective switch
+          ip is Vip(from above)
+        Output msg: 'Added vrouter interface with ip %s to %s'
+
+
+(FOR NON-CLUSTER LEAF VRRP CONFIGURATION:)
+
+
+8. Create vrouter in non-cluster-leaf switch i.e. leaf_switch_1(@ref point 3)
+Command: vrouter-create name %s vnet %s
+Output msg: ‘Created vrouter with name %s’
+
+   8.a. To get the vnet name, same process is followed as done in point 1.a.
+   8.b. Vrouter name is formed by appending ‘-vrouter’ to the switch name
+
+
+9. Create vlan using the vlan_id(@ref point 3)
+Command: vlan-create id %s scope fabric
+Output msg: ‘Created vlan id %s with scope fabric’
+
+
+10. Create a vrrp/vrouter interface in the non-cluster leaf
+Command:  switch %s vrouter-interface-add vrouter-name %s vlan %s ip %s
+          vlan is the vlan_id from the csv file(@ref point 3)
+          vrouter-name is the vrouter in the respective switch i.e. leaf_switch_1(@ref point 3)
+          ip is a gateway-ip formed from the vrrp_ip(@ref point 3) by converting the last octet in the vrrp_ip range to .1
+             e.g.: Let the vrrp_ip be 101.108.102.0/24 from the csv file then
+                     ip = 101.108.102.1
+Output msg: ‘Added vrouter interface with ip %s on %s’
+ 
+
+Output/Return:
+This module return following fields in JSON format.
+1. summary: Contains output of each configuration/commands along with switch name on which it got executed. In case of failure, this will contain a message, 'Operation failed: %s', with failed command replacing %s.
+2. changed: Indicates whether the CLI caused changes on switches, using True/False.
+3. unreachable: Indicates whether switch was unreachable to connect, using True/False.
+4. failed: Indicates whether the execution of commands failed on switches, using True/False.
+5. exception: Describe error/exception occurred during execution of commands.
+6. task: 'CLI commands to configure L3 VRRP zero touch provisioning'
+7. msg: On success: 'L3 VRRP configuration executed successfully'
+On failure: 'L3 VRRP configuration failed'
+On ssh connection error: 'Failed to connect to host via ssh: ssh: connect to host %s port 22: No route to host' (Note: %s will get replaced by the mgmt ip of unreachable switch)
+On exception failure: 'Unexpected failure during module execution'
+On incorrect login credentials: 'MODULE FAILURE'
+
+Note: On success, summary field is of primary importance, as it shows what configuration has happened on each switch and on failure, msg field provides exact details on why it failed.

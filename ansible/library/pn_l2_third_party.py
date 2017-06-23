@@ -1,5 +1,5 @@
 #!/usr/bin/python
-""" PN CLI L2 Zero Touch Provisioning (ZTP) with third party switches """
+""" PN CLI L2 with third party spine switches """
 
 #
 # This file is part of Ansible
@@ -18,24 +18,26 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-from ansible.module_utils.basic import AnsibleModule
 import shlex
+
+from ansible.module_utils.basic import AnsibleModule
 
 DOCUMENTATION = """
 ---
 module: pn_l2_third_party
 author: 'Pluribus Networks (devops@pluribusnetworks.com)'
-short_description: CLI command to configure layer2 zero touch provisioning.
+short_description: CLI command to configure L2 with 3rd party spine switches.
 description:
     Zero Touch Provisioning (ZTP) allows you to provision new switches in your
-    network automatically, without manual intervention. It will configure layer2
-    on all leaf switches, with spines being third party (non PN) switches.
+    network automatically, without manual intervention. This module will
+    configure trunks, vlags on all leaf switches, with spines being third party
+    (non PN) switches.
 options:
     pn_cliusername:
-        description:
-          - Provide login username if user is not root.
-        required: False
-        type: str
+      description:
+        - Provide login username if user is not root.
+      required: False
+      type: str
     pn_clipassword:
       description:
         - Provide login password if user is not root.
@@ -43,7 +45,7 @@ options:
       type: str
     pn_spine_list:
       description:
-        - Specify list of Spine hosts.
+        - Specify list of 3rd party Spine hosts.
       required: False
       type: list
     pn_leaf_list:
@@ -75,18 +77,34 @@ EXAMPLES = """
 """
 
 RETURN = """
-stdout:
-  description: The set of responses for each command.
+summary:
+  description: It contains output of each configuration along with switch name.
   returned: always
   type: str
 changed:
   description: Indicates whether the CLI caused changes on the target.
   returned: always
   type: bool
+unreachable:
+  description: Indicates whether switch was unreachable to connect.
+  returned: always
+  type: bool
 failed:
   description: Indicates whether or not the execution failed on the target.
   returned: always
   type: bool
+exception:
+  description: Describes error/exception occurred while executing CLI command.
+  returned: always
+  type: str
+task:
+  description: Name of the task getting executed on switch.
+  returned: always
+  type: str
+msg:
+  description: Indicates whether configuration made was successful or failed.
+  returned: always
+  type: str
 """
 
 
@@ -95,9 +113,8 @@ CHANGED_FLAG = []
 
 def pn_cli(module):
     """
-    This method is to generate the cli portion to launch the Netvisor cli.
-    It parses the username, password, switch parameters from module.
-    :param module: The Ansible module to fetch username, password and switch.
+    Method to generate the cli portion to launch the Netvisor cli.
+    :param module: The Ansible module to fetch username and password.
     :return: The cli string for further processing.
     """
     username = module.params['pn_cliusername']
@@ -113,25 +130,31 @@ def pn_cli(module):
 
 def run_cli(module, cli):
     """
-    This method executes the cli command on the target node(s) and returns the
+    Method to execute the cli command on the target node(s) and returns the
     output.
     :param module: The Ansible module to fetch input parameters.
-    :param cli: the complete cli string to be executed on the target node(s).
-    :return: Output/Error or Success message depending upon
-    the response from cli.
+    :param cli: The complete cli string to be executed on the target node(s).
+    :return: Output/Error or Success msg depending upon the response from cli.
     """
     cli = shlex.split(cli)
     rc, out, err = module.run_command(cli)
-
+    results = []
     if out:
         return out
 
     if err:
+        json_msg = {
+            'switch': '',
+            'output': u'Operation Failed: {}'.format(' '.join(cli))
+        }
+        results.append(json_msg)
         module.exit_json(
-            error='1',
+            unreachable=False,
             failed=True,
-            stderr=err.strip(),
-            msg='Operation Failed: ' + str(cli),
+            exception=err.strip(),
+            summary=results,
+            task='Configure L2 (Auto vLags) with 3rd party spine switches',
+            msg='L2 configuration with 3rd party spine switches succeeded',
             changed=False
         )
     else:
@@ -145,12 +168,12 @@ def modify_stp(module, modify_flag):
     :param modify_flag: Enable/disable flag to set.
     :return: The output of run_cli() method.
     """
+    global CHANGED_FLAG
     output = ''
     cli = pn_cli(module)
     clicopy = cli
-    cli += ' fabric-node-show format name no-show-headers '
-    switch_names = run_cli(module, cli).split()
-    for switch in switch_names:
+
+    for switch in module.params['pn_leaf_list']:
         cli = clicopy
         cli += ' switch %s stp-show format enable ' % switch
         current_state = run_cli(module, cli).split()[1]
@@ -158,9 +181,11 @@ def modify_stp(module, modify_flag):
             cli = clicopy
             cli += ' switch ' + switch
             cli += ' stp-modify ' + modify_flag
-            output += run_cli(module, cli)
+            if 'Success' in run_cli(module, cli):
+                output += ' %s: STP enabled \n' % switch
+                CHANGED_FLAG.append(True)
         else:
-            output += ' STP is already enabled! '
+            output += ' %s: STP is already enabled \n' % switch
 
     return output
 
@@ -171,12 +196,12 @@ def update_fabric_network_to_inband(module):
     :param module: The Ansible module to fetch input parameters.
     :return: The output of run_cli() method.
     """
+    global CHANGED_FLAG
     output = ''
     cli = pn_cli(module)
     clicopy = cli
-    cli += ' fabric-node-show format name no-show-headers '
-    switch_names = run_cli(module, cli).split()
-    for switch in switch_names:
+
+    for switch in module.params['pn_leaf_list']:
         cli = clicopy
         cli += ' fabric-info format fabric-network '
         fabric_network = run_cli(module, cli).split()[1]
@@ -184,9 +209,10 @@ def update_fabric_network_to_inband(module):
             cli = clicopy
             cli += ' switch ' + switch
             cli += ' fabric-local-modify fabric-network in-band '
-            output += run_cli(module, cli)
-        else:
-            output += ' Fabric network is already in-band! '
+            if 'Success' in run_cli(module, cli):
+                CHANGED_FLAG.append(True)
+
+        output += ' %s: Updated fabric network to in-band \n' % switch
 
     return output
 
@@ -199,7 +225,7 @@ def create_cluster(module, switch, name, node1, node2):
     :param name: The name of the cluster to create.
     :param node1: First node of the cluster.
     :param node2: Second node of the cluster.
-    :return: String describing if cluster got created or if it already exists.
+    :return: The output of run_cli() method.
     """
     global CHANGED_FLAG
     cli = pn_cli(module)
@@ -212,10 +238,8 @@ def create_cluster(module, switch, name, node1, node2):
         cli += ' cluster-node-1 %s cluster-node-2 %s ' % (node1, node2)
         if 'Success' in run_cli(module, cli):
             CHANGED_FLAG.append(True)
-            return ' %s created successfully \n' % name
-    else:
-        CHANGED_FLAG.append(False)
-        return ' %s already exists! \n' % name
+
+    return ' %s: Created %s \n' % (switch, name)
 
 
 def get_ports(module, switch, peer_switch):
@@ -239,7 +263,7 @@ def create_trunk(module, switch, name, ports):
     :param switch: Name of the local switch.
     :param name: The name of the trunk to create.
     :param ports: List of connected ports.
-    :return: String describing if trunk got created or if it already exists.
+    :return: The output of run_cli() method.
     """
     global CHANGED_FLAG
     cli = pn_cli(module)
@@ -251,12 +275,10 @@ def create_trunk(module, switch, name, ports):
         ports_string = ','.join(ports)
         cli += ' switch %s trunk-create name %s ' % (switch, name)
         cli += ' ports %s ' % ports_string
-        if 'Success' in run_cli(module, cli):
-            CHANGED_FLAG.append(True)
-            return ' %s trunk created successfully! \n' % name
-    else:
-        CHANGED_FLAG.append(False)
-        return ' %s trunk already exists! \n' % name
+        run_cli(module, cli)
+        CHANGED_FLAG.append(True)
+
+    return ' %s: Created trunk %s \n' % (switch, name)
 
 
 def find_non_clustered_leafs(module, leaf_list):
@@ -268,16 +290,12 @@ def find_non_clustered_leafs(module, leaf_list):
     """
     non_clustered_leafs = []
     cli = pn_cli(module)
-    clicopy = cli
-    cli += ' cluster-show format cluster-node-1 no-show-headers '
-    cluster1 = run_cli(module, cli).split()
-
-    cli = clicopy
-    cli += ' cluster-show format cluster-node-2 no-show-headers '
-    cluster2 = run_cli(module, cli).split()
+    cli += ' cluster-show format cluster-node-1,cluster-node-2 '
+    cli += ' no-show-headers '
+    clustered_nodes = run_cli(module, cli).split()
 
     for leaf in leaf_list:
-        if (leaf not in cluster1) and (leaf not in cluster2):
+        if leaf not in clustered_nodes:
             non_clustered_leafs.append(leaf)
 
     return non_clustered_leafs
@@ -306,15 +324,13 @@ def create_vlag(module, switch, name, peer_switch, port, peer_port):
                                                                     peer_port)
         if 'Success' in run_cli(module, cli):
             CHANGED_FLAG.append(True)
-            return ' %s vlag configured successfully \n' % name
-    else:
-        CHANGED_FLAG.append(False)
-        return ' %s vlag is already configured \n' % name
+
+    return ' %s: Configured vLag %s \n' % (switch, name)
 
 
 def configure_trunk(module, cluster_node, switch_list):
     """
-    Method to configure trubk vlags.
+    Method to configure trunk vlags.
     :param module: The Ansible module to fetch input parameters.
     :param cluster_node: The node from which lag needs to be created.
     :param switch_list: The list of connected switches to find
@@ -329,6 +345,9 @@ def configure_trunk(module, cluster_node, switch_list):
 
     src_ports = list(set(src_ports))
     name = cluster_node + '-to-' + switch_names
+    if len(name) > 59:
+        name = name[:59]
+
     output = create_trunk(module, cluster_node, name, src_ports)
     return output + name
 
@@ -341,7 +360,7 @@ def configure_trunk_vlag_for_clustered_leafs(module, non_clustered_leafs,
     :param module: The Ansible module to fetch input parameters.
     :param non_clustered_leafs: The list of non clustered leaf switches.
     :param spine_list: The list of spine switches.
-    :return: Output of create_cluster(0 and create_vlag() methods.
+    :return: Output of create_cluster() and create_vlag() methods.
     """
     cli = pn_cli(module)
     clicopy = cli
@@ -376,23 +395,29 @@ def configure_trunk_vlag_for_clustered_leafs(module, non_clustered_leafs,
                 node2 = system_names[node_count]
                 if node2 in non_clustered_leafs:
                     # Cluster creation
-                    cluster_name = (node1 + '-to-' + node2 + '-cluster')[:59]
+                    cluster_name = node1 + '-to-' + node2 + '-cluster'
+                    if len(cluster_name) > 59:
+                        cluster_name = cluster_name[:59]
 
                     output += create_cluster(module, node2, cluster_name,
                                              node1, node2)
 
                     non_clustered_leafs.remove(node2)
 
-                    # Trunk creation (leaf to spine)
-                    trunk_message1 = configure_trunk(module, node1, spine_list).split('\n')
-                    trunk_message2 = configure_trunk(module, node2, spine_list).split('\n')
+                    # Trunk creation (leaf to spines)
+                    trunk_message1 = configure_trunk(module, node1,
+                                                     spine_list).split('\n')
+                    trunk_message2 = configure_trunk(module, node2,
+                                                     spine_list).split('\n')
                     trunk_name1 = trunk_message1[1]
                     trunk_name2 = trunk_message2[1]
                     output += trunk_message1[0] + '\n'
                     output += trunk_message2[0] + '\n'
 
-                    # Vlag creation (leaf to spine)
-                    vlag_name = (node1 + '-' + node2 + '-to-' + 'spine')[:59]
+                    # Vlag creation (leaf to spines)
+                    vlag_name = node1 + '-' + node2 + '-to-' + 'spine'
+                    if len(vlag_name) > 59:
+                        vlag_name = vlag_name[:59]
 
                     output += create_vlag(module, node1, vlag_name, node2,
                                           trunk_name1, trunk_name2)
@@ -412,10 +437,11 @@ def configure_trunk_non_clustered_leafs(module, non_clustered_leafs,
     :param spine_list: The list of all spine switches.
     :return: Output of configure_trunk() method.
     """
+    output = ''
     for leaf in non_clustered_leafs:
-        # Trunk creation (leaf to spine)
+        # Trunk creation (leaf to spines)
         trunk_message = configure_trunk(module, leaf, spine_list).split('\n')
-        output = trunk_message[0] + '\n'
+        output += trunk_message[0] + '\n'
 
     return output
 
@@ -430,8 +456,7 @@ def configure_auto_vlag(module):
     leaf_list = module.params['pn_leaf_list']
 
     # Configure trunk, vlag for clustered leaf switches.
-    output = configure_trunk_vlag_for_clustered_leafs(module,
-                                                      list(leaf_list),
+    output = configure_trunk_vlag_for_clustered_leafs(module, list(leaf_list),
                                                       spine_list)
 
     # Configure trunk, vlag for non clustered leaf switches.
@@ -456,39 +481,39 @@ def main():
     )
 
     global CHANGED_FLAG
-    CHANGED_FLAG = []
 
-    # L2 setup (auto-vlag)
+    # L2 setup (auto vLags).
     message = configure_auto_vlag(module)
 
-    # Update fabric network to in-band if flag is True
+    # Update fabric network to in-band if flag is True.
     if module.params['pn_update_fabric_to_inband']:
-        if 'Success' in update_fabric_network_to_inband(module):
-            message += ' Updated fabric network to in-band! '
-            CHANGED_FLAG.append(True)
-        else:
-            message += ' Fabric network is already in-band! '
-            CHANGED_FLAG.append(False)
+        message += update_fabric_network_to_inband(module)
 
-    # Enable STP if flag is True
+    # Enable STP if flag is True.
     if module.params['pn_stp']:
-        stp_out_msg = modify_stp(module, 'enable')
-        if 'Success' in stp_out_msg:
-            message += ' STP enabled! '
-            CHANGED_FLAG.append(True)
-        else:
-            message += ' STP is already enabled! '
-            CHANGED_FLAG.append(False)
+        message += modify_stp(module, 'enable')
 
-    # Exit the module and return the required JSON
+    results = []
+    for switch in module.params['pn_leaf_list']:
+        replace_string = switch + ': '
+        for line in message.splitlines():
+            if replace_string in line:
+                json_msg = {
+                    'switch': switch,
+                    'output': (line.replace(replace_string, '')).strip()
+                }
+                results.append(json_msg)
+
+    # Exit the module and return the required JSON.
     module.exit_json(
-        stdout=message,
-        error='0',
+        unreachable=False,
+        msg='L2 configuration with 3rd party spine switches succeeded',
+        summary=results,
+        exception='',
         failed=False,
-        msg='L2 ZTP Configured Successfully.',
-        changed=True if True in CHANGED_FLAG else False
+        changed=True if True in CHANGED_FLAG else False,
+        task='Configure L2 (Auto vLags) with 3rd party spine switches'
     )
-
 
 if __name__ == '__main__':
     main()

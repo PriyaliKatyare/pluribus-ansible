@@ -22,7 +22,7 @@
     - name: Wait for nvOSd to reboot
       pause:                             # Pause playbook execution for specified amount of time.
         minutes: 3
-      when: reset_out.stdout_lines != ["Switch has been already reset."]
+      when: reset_out.msg != ["Switch has been already reset."]
 
     - name: Check nvOSd status (Retry until it's online)
       command: service svc-nvOSd status
@@ -44,14 +44,14 @@
   - cli_vault.yml
 
   vars:
-  - json_file_path: /etc/ansible/pluribus-ansible/ansible/output.json
+  - json_file_path: /tmp/output.json
 
   tasks:
     - name: Auto accept EULA, Disable STP, enable ports and create/join fabric
       pn_initial_ztp_json:
         pn_cliusername: "{{ USERNAME }}"               # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"               # Cli password (value comes from cli_vault.yml).
-        pn_fabric_name: 'test-l3-fabric'               # Name of the fabric to create/join.
+        pn_fabric_name: 'test-l3-ospf-fab'             # Name of the fabric to create/join.
         pn_current_switch: "{{ inventory_hostname }}"  # Name of the switch on which this task is currently getting executed.
         pn_spine_list: "{{ groups['spine'] }}"         # List of all spine switches mentioned under [spine] grp in hosts file.
         pn_leaf_list: "{{ groups['leaf'] }}"           # List of all leaf switches mentioned under [leaf] grp in hosts file.
@@ -94,7 +94,7 @@
 
 
 # L3 VRRP setup and automation tests
-- name: L3 VRRP setup and tests
+- name: L3 VRRP OSPF setup and tests
   hosts: spine[0]
   become: true
   become_method: su
@@ -106,8 +106,8 @@
   vars:
     spine_count: "{{ groups['spine'] | length }}"
     leaf_count: "{{ groups['leaf'] | length }}"
-    csv_file: /etc/ansible/pluribus-ansible/ansible/l3csv.csv  # CSV file path
-    json_file_path: /etc/ansible/pluribus-ansible/ansible/output.json
+    csv_file: /etc/ansible/pluribus-ansible/ansible/l3_auto_setup.csv  # CSV file path
+    json_file_path: /tmp/output.json
 
   tasks:
     # L3 VRRP setup
@@ -181,21 +181,15 @@
     - pause:
         seconds: 2                              # Pause playbook execution for specified amount of time.
 
-    # eBGP/OSPF setup
-    - name: Configure eBGP/OSPF
+    # OSPF setup
+    - name: Configure OSPF
       pn_ebgp_ospf_json:
         pn_cliusername: "{{ USERNAME }}"        # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"        # Cli password (value comes from cli_vault.yml).
         pn_spine_list: "{{ groups['spine'] }}"  # List of all spine switches mentioned under [spine] grp in hosts file.
         pn_leaf_list: "{{ groups['leaf'] }}"    # List of all leaf switches mentioned under [leaf] grp in hosts file.
         pn_bfd: True                            # Flag to indicate if BFD config should be added to eBGP/ospf. Default: False.
-        pn_routing_protocol: 'ebgp'             # Routing protocol to configure. Choices are ['ebgp', 'ospf']
-        pn_bgp_maxpath: '16'                    # BGP-MAXPATH value to be assigned to vrouters. Default: 16
-        pn_bgp_redistribute: 'connected'        # BGP-REDISTRIBUTE value to be assigned to vrouters. Chocies: none, static, connected, rip, ospf. Default: connected
-        pn_bgp_as_range: '65000'                # BGP-AS-RANGE value to be assigned to vrouters. Default: 65000
-        pn_ibgp_ip_range: '75.75.75.0/30'       # iBGP IP range to be assigned to interfaces. Default: '75.75.75.0/30'
-        pn_ibgp_vlan: '4040'                    # iBGP vlan value to be assigned to interfaces. Default 4040
-        pn_ospf_area_id: '0'                    # Area id to configure for ospf. Default: 0
+        pn_routing_protocol: 'ospf'             # Routing protocol to configure. Choices are ['ebgp', 'ospf']
       register: bgp_out                         # Variable to hold/register output of the above tasks.
       until: bgp_out.failed != true             # If the above code fails it will retry the code
       retries: 3                                # This is the retries count
@@ -245,13 +239,27 @@
         var: test_l3_out.stdout_lines          # Print stdout_lines of register variable.
 
     # Test eBGP configuration
-    - name: Test eBGP
+    - name: Test OSPF
       pn_test_ebgp_ospf:
         pn_cliusername: "{{ USERNAME }}"       # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"       # Cli password (value comes from cli_vault.yml).
         pn_spine_count: "{{ spine_count }}"    # Count of Spine switches.
         pn_leaf_count: "{{ leaf_count }}"      # Count of Leaf switches.
+        pn_routing_protocol: 'ospf'            # Routing protocol to configure. Choices are ['ebgp', 'ospf']
       register: test_ebgp_out
 
     - debug:
         var: test_ebgp_out.stdout_lines             # Print stdout_lines of register variable.
+
+    # Full-mesh vrouter ping test
+    - name: Full mesh vrouter-ping test
+      pn_vrouter_ping_test:
+        pn_cliusername: "{{ USERNAME }}"  # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"  # Cli password (value comes from cli_vault.yml).
+      register: ping_out
+
+    - debug:
+        var: ping_out.msg          # Print stdout_lines of register variable.
+
+    - pause:
+        seconds: 2                        # Pause playbook execution for specified amount of time.

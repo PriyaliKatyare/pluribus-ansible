@@ -22,7 +22,7 @@
     - name: Wait for nvOSd to reboot
       pause:                             # Pause playbook execution for specified amount of time.
         minutes: 3
-      when: reset_out.msg != "Switch has been already reset."
+      when: reset_out.msg != ["Switch has been already reset."]
 
     - name: Check nvOSd status (Retry until it's online)
       command: service svc-nvOSd status
@@ -51,7 +51,7 @@
       pn_initial_ztp_json:
         pn_cliusername: "{{ USERNAME }}"               # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"               # Cli password (value comes from cli_vault.yml).
-        pn_fabric_name: 'test-l3-fabric'                   # Name of the fabric to create/join.
+        pn_fabric_name: 'test-l3-fabric'               # Name of the fabric to create/join.
         pn_current_switch: "{{ inventory_hostname }}"  # Name of the switch on which this task is currently getting executed.
         pn_spine_list: "{{ groups['spine'] }}"         # List of all spine switches mentioned under [spine] grp in hosts file.
         pn_leaf_list: "{{ groups['leaf'] }}"           # List of all leaf switches mentioned under [leaf] grp in hosts file.
@@ -93,8 +93,8 @@
         seconds: 2                   # Pause playbook execution for specified amount of time.
 
 
-# L3 ZTP setup and automation tests
-- name: Zero Touch Provisioning - Layer3
+# L3 VRRP setup and automation tests
+- name: L3 VRRP setup and tests
   hosts: spine[0]
   become: true
   become_method: su
@@ -106,9 +106,41 @@
   vars:
     spine_count: "{{ groups['spine'] | length }}"
     leaf_count: "{{ groups['leaf'] | length }}"
+    csv_file: /etc/ansible/pluribus-ansible/ansible/l3_auto_setup.csv  # CSV file path
     json_file_path: /tmp/output.json
 
   tasks:
+    # L3 VRRP setup
+    - name: Configure VRRP L3 setup
+      pn_ztp_vrrp_l3_json:
+        pn_cliusername: "{{ USERNAME }}"  # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"  # Cli password (value comes from cli_vault.yml).
+        pn_spine_list: "{{ groups['spine'] }}"  # List of all spine switches mentioned under [spine] grp in hosts file.
+        pn_leaf_list: "{{ groups['leaf'] }}"    # List of all leaf switches mentioned under [leaf] grp in hosts file.
+        pn_csv_data: "{{ lookup('file', '{{ csv_file }}') }}"  # VRRP Layer3 data specified in CSV file.
+      register: vrrp_out               # Variable to hold/register output of the above tasks.
+      until:  vrrp_out.failed != true  # If error pops up it will retry the code
+      retries: 3                       # This is the retries count
+      delay: 1
+      ignore_errors: yes               # Flag to indicate if we should ignore errors if any.
+
+    # Copy the json output of the above task in a file
+    - local_action: copy content={{ vrrp_out }} dest={{ json_file_path }}
+
+    # Validate the json output stored in the file
+    - local_action: command python validate_json.py {{ json_file_path }}
+      register: validate
+
+    # Remove the above created file
+    - local_action: file path={{ json_file_path }} state=absent
+
+    - fail:
+        msg: "JSON validation failed"
+      when: validate.stdout != "JSON Validation Successful"
+
+    - pause:
+        seconds: 2                     # Pause playbook execution for specified amount of time.
+
     # L3 ZTP setup
     - name: Configure L3 ZTP (Auto configure link IPs)
       pn_l3_ztp_json:
@@ -120,12 +152,12 @@
         pn_cidr: '24'                           # Subnet mask required to calculate link IPs for layer3 fabric.
         pn_supernet: '30'                       # Supernet mask required to calculate link IPs for layer3 fabric.
         pn_assign_loopback: True                # Flag to indicate if loopback ips should be assigned to vrouters in layer3 fabric. Default: False.
-        # pn_loopback_ip: '109.109.109.0/24'    # Loopback ip value for vrouters in layer3 fabric. Default: 109.109.109.0/24.
-        # pn_bfd: True                          # Flag to indicate if BFD config should be added to vrouter interfaces in case of layer3 fabric. Default: False.
-        # pn_bfd_min_rx: 200                    # BFD-MIN-RX value required for adding BFD configuration to vrouter interfaces.
-        # pn_bfd_multiplier: 3                  # BFD_MULTIPLIER value required for adding BFD configuration to vrouter interfaces.
-        # pn_update_fabric_to_inband: False     # Flag to indicate if fabric network should be updated to in-band. Default: False.
-        # pn_stp: True                          # Flag to enable STP. Default: True.
+        pn_loopback_ip: '109.109.109.0/24'      # Loopback ip value for vrouters in layer3 fabric. Default: 109.109.109.0/24.
+        pn_bfd: True                            # Flag to indicate if BFD config should be added to vrouter interfaces in case of layer3 fabric. Default: False.
+        pn_bfd_min_rx: 200                      # BFD-MIN-RX value required for adding BFD configuration to vrouter interfaces.
+        pn_bfd_multiplier: 3                    # BFD_MULTIPLIER value required for adding BFD configuration to vrouter interfaces.
+        pn_update_fabric_to_inband: False       # Flag to indicate if fabric network should be updated to in-band. Default: False.
+        pn_stp: True                            # Flag to enable STP. Default: True.
       register: ztp_l3_out                      # Variable to hold/register output of the above tasks.
       until:  ztp_l3_out.failed != true         # If error pops up it will retry the code
       retries: 3                                # This is the retries count
@@ -149,24 +181,90 @@
     - pause:
         seconds: 2                              # Pause playbook execution for specified amount of time.
 
+    # eBGP/OSPF setup
+    - name: Configure eBGP/OSPF
+      pn_ebgp_ospf_json:
+        pn_cliusername: "{{ USERNAME }}"        # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"        # Cli password (value comes from cli_vault.yml).
+        pn_spine_list: "{{ groups['spine'] }}"  # List of all spine switches mentioned under [spine] grp in hosts file.
+        pn_leaf_list: "{{ groups['leaf'] }}"    # List of all leaf switches mentioned under [leaf] grp in hosts file.
+        pn_bfd: True                            # Flag to indicate if BFD config should be added to eBGP/ospf. Default: False.
+        pn_routing_protocol: 'ebgp'             # Routing protocol to configure. Choices are ['ebgp', 'ospf']
+        pn_bgp_maxpath: '16'                    # BGP-MAXPATH value to be assigned to vrouters. Default: 16
+        pn_bgp_redistribute: 'connected'        # BGP-REDISTRIBUTE value to be assigned to vrouters. Chocies: none, static, connected, rip, ospf. Default: connected
+        pn_bgp_as_range: '65000'                # BGP-AS-RANGE value to be assigned to vrouters. Default: 65000
+        pn_ibgp_ip_range: '75.75.75.0/30'       # iBGP IP range to be assigned to interfaces. Default: '75.75.75.0/30'
+        pn_ibgp_vlan: '4040'                    # iBGP vlan value to be assigned to interfaces. Default 4040
+        pn_ospf_area_id: '0'                    # Area id to configure for ospf. Default: 0
+      register: bgp_out                         # Variable to hold/register output of the above tasks.
+      until: bgp_out.failed != true             # If the above code fails it will retry the code
+      retries: 3                                # This is the retries count
+      delay: 1
+      ignore_errors: yes                        # Flag to indicate if we should ignore errors if any.
+
+    # Copy the json output of the above task in a file
+    - local_action: copy content={{ bgp_out }} dest={{ json_file_path }}
+
+    # Validate the json output stored in the file
+    - local_action: command python validate_json.py {{ json_file_path }}
+      register: validate
+
+    # Remove the above created file
+    - local_action: file path={{ json_file_path }} state=absent
+
+    - fail:
+        msg: "JSON validation failed"
+      when: validate.stdout != "JSON Validation Successful"
+
+    - pause:
+        seconds: 2                              # Pause playbook execution for specified amount of time.
+
 
     # Test L3 ZTP configuration
     - name: Test Layer3 Zero Touch Provisioning
       pn_test_ztp_l3:
-        pn_cliusername: "{{ USERNAME }}"       # Cli username (value comes from cli_vault.yml).
-        pn_clipassword: "{{ PASSWORD }}"       # Cli password (value comes from cli_vault.yml).
-        pn_spine_count: "{{ spine_count }}"    # Count of Spine switches.
-        pn_leaf_count: "{{ leaf_count }}"      # Count of Leaf switches.
+        pn_cliusername: "{{ USERNAME }}"        # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"        # Cli password (value comes from cli_vault.yml).
+        pn_spine_count: "{{ spine_count }}"     # Count of Spine switches.
+        pn_leaf_count: "{{ leaf_count }}"       # Count of Leaf switches.
       register: test_out
 
     - debug:
         var: test_out.stdout_lines             # Print stdout_lines of register variable.
+
+    # Test L3 VRRP configuration
+    - name: Test Layer3 VRRP
+      pn_test_l3_vrrp:
+        pn_cliusername: "{{ USERNAME }}"       # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"       # Cli password (value comes from cli_vault.yml).
+        pn_spine_count: "{{ spine_count }}"    # Count of Spine switches.
+        pn_leaf_count: "{{ leaf_count }}"      # Count of Leaf switches.
+      register: test_l3_out
+
+    - debug:
+        var: test_l3_out.stdout_lines          # Print stdout_lines of register variable.
+
+    # Test eBGP configuration
+    - name: Test eBGP
+      pn_test_ebgp_ospf:
+        pn_cliusername: "{{ USERNAME }}"       # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"       # Cli password (value comes from cli_vault.yml).
+        pn_spine_count: "{{ spine_count }}"    # Count of Spine switches.
+        pn_leaf_count: "{{ leaf_count }}"      # Count of Leaf switches.
+      register: test_ebgp_out
+
+    - debug:
+        var: test_ebgp_out.stdout_lines             # Print stdout_lines of register variable.
 
     # Full-mesh vrouter ping test
     - name: Full mesh vrouter-ping test
       pn_vrouter_ping_test:
         pn_cliusername: "{{ USERNAME }}"  # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"  # Cli password (value comes from cli_vault.yml).
+      register: ping_out
+
+    - debug:
+        var: ping_out.msg          # Print stdout_lines of register variable.
 
     - pause:
         seconds: 2                        # Pause playbook execution for specified amount of time.

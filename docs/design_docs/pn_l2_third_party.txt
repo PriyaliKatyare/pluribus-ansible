@@ -1,0 +1,68 @@
+Module Name: pn_l2_third_party
+
+Description: 
+This module is extension of pn_initial_ztp module to configure vLags for Layer2 fabric. This module will create clusters between leaf switches which are physically connected to each other, followed by required trunk and vlag creations. Spine switches will be third party switches.
+
+Input: 
+User provides following inputs to this module.
+1. pn_cliusername: Username to use to login into cli.
+2. pn_clipassword: Password to use for above username to login into cli.
+3. pn_spine_list: List of third party spine switches.
+4. pn_leaf_list: List of leaf switches.
+5. pn_update_fabric_to_inband: Flag to indicate if fabric network should be updated to in-band. Default=False. 
+6. pn_stp: Flag to decide if stp (spanning tree protocol) should be enabled at the end. Default=False.
+
+Steps/Commands: 
+This module performs following steps.
+(Note: %s values in below commands get substituted with appropriate values provided by the user.)
+
+1. Create clusters between physically connected leaf switches
+cluster-create name %s cluster-node-1 %s cluster-node-2 %s
+Note: A switch can be part of one and only one cluster. If leaf1 is connected to leaf2 and leaf3, and if we form the cluster between leaf1 and leaf2, then we cannot form cluster between leaf1 and leaf3, even though they are physically connected.
+Output msg: 'Created %s'
+
+2. Get the list of ports that are connected from clustered leaf to spine switches
+port-show hostname %s format port no-show-headers
+
+3. Create trunk from clustered leaf to spine switches using above ports
+trunk-create name %s ports %s
+Output msg: 'Created trunk %s'
+
+4. Configure vLag from clustered leaf to spine switches
+vlag-create name %s port %s peer-switch %s peer-port %s mode active-active
+Output msg: 'Configured vLag %s'
+
+5. Find leaf switches that are not part of any cluster (non-clustered leaf switches)
+First get the list of leaf switches that are part of clusters using: cluster-show format cluster-node-1,cluster-node-2 no-show-headers
+Now, using pn_leaf_list, check which all leaf switches are not part of the above cluster switches list and create a list of non-clustered leaf switches from this.
+
+6. Get the list of ports that are connected from non-clustered leaf to spine switches
+port-show hostname %s format port no-show-headers
+
+7. Create trunk from non-clustered leaf to spine switches using above ports
+trunk-create name %s ports %s
+Output msg: 'Created trunk %s'
+
+8. Update fabric network to in-band for all switches if pn_update_fabric_to_inband flag is True
+fabric-local-modify fabric-network in-band
+Output msg: 'Updated fabric network to in-band'
+
+9. Enable STP (spanning tree protocol) on all switches if pn_stp flag is True
+stp-modify enable
+Output msg: 'STP enabled'
+
+Output/Return:
+This module return following fields in JSON format.
+1. summary: Contains output of each configuration/commands along with switch name on which it got executed. In case of failure, this will contain a message, 'Operation failed: %s', with failed command replacing %s.
+2. changed: Indicates whether the CLI caused changes on switches, using True/False.
+3. unreachable: Indicates whether switch was unreachable to connect, using True/False.
+4. failed: Indicates whether the execution of commands failed on switches, using True/False.
+5. exception: Describe error/exception occurred during execution of commands.
+6. task: 'Configure L2 with thrid party spines (Auto vLags)'
+7. msg: On success: 'L2 configuration succeeded'
+On failure: 'L2 configuration failed'
+On ssh connection error: 'Failed to connect to host via ssh: ssh: connect to host %s port 22: No route to host' (Note: %s will get replaced by the mgmt ip of unreachable switch)
+On exception failure: 'Unexpected failure during module execution'
+On incorrect login credentials: 'MODULE FAILURE'
+
+Note: On success, summary field is of primary importance, as it shows what configuration has happened on each switch and on failure, msg field provides exact details on why it failed.

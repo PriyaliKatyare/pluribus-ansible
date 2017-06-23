@@ -22,7 +22,7 @@
     - name: Wait for nvOSd to reboot
       pause:                             # Pause playbook execution for specified amount of time.
         minutes: 3
-      when: reset_out.stdout_lines != ["Switch has been already reset."]
+      when: reset_out.msg != ["Switch has been already reset."]
 
     - name: Check nvOSd status (Retry until it's online)
       command: service svc-nvOSd status
@@ -44,7 +44,7 @@
   - cli_vault.yml
 
   vars:
-  - json_file_path: /etc/ansible/pluribus-ansible/ansible/output.json
+  - json_file_path: /tmp/output.json
 
   tasks:
     - name: Auto accept EULA, Disable STP, enable ports and create/join fabric
@@ -107,7 +107,7 @@
     spine_count: "{{ groups['spine'] | length }}"
     leaf_count: "{{ groups['leaf'] | length }}"
     csv_file: /etc/ansible/pluribus-ansible/ansible/pn_vrrp_l2.csv  # CSV file path.
-    json_file_path: /etc/ansible/pluribus-ansible/ansible/output.json
+    json_file_path: /tmp/output.json
 
   tasks:
     # L2 ZTP setup
@@ -186,7 +186,6 @@
     - debug:
         var: test_out.stdout_lines             # Print stdout_lines of register variable.
 
-
     # Test L2 VRRP configuration
     - name: Test Layer2 VRRP
       pn_test_l2_vrrp:
@@ -199,3 +198,16 @@
 
     - debug:
         var: test_l2_out.stdout_lines          # Print stdout_lines of register variable.
+
+    # Full-mesh vrouter ping test
+    - name: Full mesh vrouter-ping test
+      pn_vrouter_ping_test:
+        pn_cliusername: "{{ USERNAME }}"  # Cli username (value comes from cli_vault.yml).
+        pn_clipassword: "{{ PASSWORD }}"  # Cli password (value comes from cli_vault.yml).
+      register: ping_out
+
+    - debug:
+        var: ping_out.msg          # Print stdout_lines of register variable.
+
+    - pause:
+        seconds: 2                        # Pause playbook execution for specified amount of time.

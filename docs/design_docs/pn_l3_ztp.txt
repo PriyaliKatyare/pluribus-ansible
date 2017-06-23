@@ -1,0 +1,98 @@
+Module Name: pn_l3_ztp
+
+Description: 
+This module is extension of pn_initial_ztp module to configure link ips for Layer3 fabric. This module will create vrouters on all switches, assign loopback ip and configure vrouter interfaces.
+
+Input: 
+User provides following inputs to this module.
+1. pn_cliusername: Username to use to login into cli.
+2. pn_clipassword: Password to use for above username to login into cli.
+3. pn_spine_list: List of spine switches.
+4. pn_leaf_list: List of leaf switches.
+5. pn_net_address: Network address to be while configuring link ips.
+6. pn_cidr: CIDR value for the above network address.
+7. pn_supernet: Supernet value to be used while configuring link ips.
+8. pn_update_fabric_to_inband: Flag to indicate if fabric network should be updated to in-band. Default=False.
+9. pn_assign_loopback: Flag to indicate if loopback ip should be assigned to vrouters. Default: False.
+10. pn_loopback_ip: Loopback ip to be assigned to vrouters starting with this ip. Default: 109.109.109.0/24
+11. pn_bfd: Flag to indicate if BFD config should be added to vrouter interfaces. Default: False.
+12. pn_bfd_min_rx: BFD-MIN-RX value required for adding BFD config. 
+13. pn_bfd_multiplier: BFD-MULTIPLIER value required for adding BFD config. 
+14. pn_stp: Flag to decide if stp (spanning tree protocol) should be enabled at the end. Default=False.
+
+Steps/Commands: 
+This module performs following steps.
+(Note: %s values in below commands get substituted with appropriate values provided by the user.)
+
+1. Disable auto trunk setting on all switches
+system-settings-modify no-auto-trunk 
+
+2. Get the list of available link(interfaces) ips for vrouters using pn_net_address, pn_cidr and pn_supernet.
+
+3. Get the fabric name
+fabric-node-show format fab-name no-show-headers
+
+4. Create vnet name, required for vrouter creation, by appending '-global' to the above fabric name
+
+5. Create vrouter on all switches. Vrouter name will be switch name appended by `-vrouter` string.
+vrouter-create name %s vnet %s
+Output msg: 'Created vrouter with name %s'
+
+6. For each leaf switch, get the list of ports which are connected to spine switches.
+port-show hostname %s format port no-show-headers
+
+7. For each of the above ports, get the name of the conflicting trunk on that leaf switch if any and delete it.
+port-show port %s hostname %s format trunk no-show-headers
+trunk-delete name %s
+
+8. For each port from the list created in step 7, create interface on that leaf switch vrouter, with the first ip from the list of available ips created in step 2. Once created, remove that ip from the step 2 list.
+vrouter-interface-add vrouter-name %s ip %s l3-port %s
+
+9. If pn_bfd flag is set to True, then first get the nic of above created interface and add BFD config to it.
+vrouter-interface-show vrouter-name %s l3-port %s format nic no-show-headers
+vrouter-interface-config-add vrouter-name %s nic %s bfd-min-rx %s bfd-multiplier %s
+Output msg: 'Added vrouter interface with ip %s'
+Output msg: 'Added BFD configuration to %s'
+
+10. For each port from the step 6 list, get the rport value
+port-show port %s format rport no-show-headers
+
+11. For this rport, get the name of the conflicting trunk on spine switch if any and delete it.
+port-show port %s hostname %s format trunk no-show-headers
+trunk-delete name %s
+
+12. Using this rport from step 10, create interface on spine switch, with next availabel ip from the list created in step 2. Once created, remove that ip from the list.
+vrouter-interface-add vrouter-name %s ip %s l3-port %s
+
+13. Perform step 9 for this rport value.
+
+14. If pn_assign_loopback flag is True then assign loopback ip to all vrouters by incrementating third octet of pn_loopack_ip.
+vrouter-loopback-interface-add vrouter-name %s ip %s
+Output msg: 'Added loopback ip %s to %s'
+
+15. For all switches, enable auto trunk setting
+system-setting-modify auto-trunk
+
+16. Update fabric network to in-band for all switches if pn_update_fabric_to_inband flag is True
+fabric-local-modify fabric-network in-band
+Output msg: 'Updated fabric network to in-band'
+
+17. Enable STP (spanning tree protocol) on all switches if pn_stp flag is True
+stp-modify enable
+Output msg: 'STP enabled'
+
+Output/Return:
+This module return following fields in JSON format.
+1. summary: Contains output of each configuration/commands along with switch name on which it got executed. In case of failure, this will contain a message, 'Operation failed: %s', with failed command replacing %s.
+2. changed: Indicates whether the CLI caused changes on switches, using True/False.
+3. unreachable: Indicates whether switch was unreachable to connect, using True/False.
+4. failed: Indicates whether the execution of commands failed on switches, using True/False.
+5. exception: Describe error/exception occurred during execution of commands.
+6. task: 'Configure L3 ZTP'
+7. msg: On success: 'L3 ZTP configuration succeeded'
+On failure: 'L3 ZTP configuration failed'
+On ssh connection error: 'Failed to connect to host via ssh: ssh: connect to host %s port 22: No route to host' (Note: %s will get replaced by the mgmt ip of unreachable switch)
+On exception failure: 'Unexpected failure during module execution'
+On incorrect login credentials: 'MODULE FAILURE'
+
+Note: On success, summary field is of primary importance, as it shows what configuration has happened on each switch and on failure, msg field provides exact details on why it failed.
