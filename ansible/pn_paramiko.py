@@ -300,7 +300,6 @@ class Connection(ConnectionBase):
                          width=int(os.getenv('COLUMNS', 0)),
                          height=int(os.getenv('LINES', 0)))
 
-        cmd = cmd.replace("/bin/sh -c", "/bin/sh \-c")
         display.vvv("EXEC %s" % cmd, host=self._play_context.remote_addr)
 
         cmd = to_bytes(cmd, errors='surrogate_or_strict')

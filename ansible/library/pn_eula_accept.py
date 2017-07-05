@@ -1,5 +1,5 @@
 #!/usr/bin/python
-""" PN Switch Config Reset """
+""" PN EULA Accept """
 
 #
 # This file is part of Ansible
@@ -24,9 +24,9 @@ from ansible.module_utils.basic import AnsibleModule
 
 DOCUMENTATION = """
 ---
-module: pn_switch_config_reset
+module: pn_eula_accept
 author: 'Pluribus Networks (devops@pluribusnetworks.com)'
-description: Module to reset a switch.
+description: Module to accept EULA
 options:
     pn_cliusername:
       description:
@@ -51,8 +51,8 @@ options:
 """
 
 EXAMPLES = """
-- name: Reset switches
-    pn_switch_config_reset:
+- name: Auto accept EULA
+    pn_eula_accept:
       pn_cliusername: "{{ USERNAME }}"
       pn_clipassword: "{{ PASSWORD }}"
       pn_host_list: "{{ groups['all'] }}"
@@ -121,11 +121,11 @@ def main():
         cli = shlex.split(cli)
         rc, out, err = module.run_command(cli)
 
-        if out:
-            cli = 'sshpass -p %s ssh %s@%s ' % (password, username, ip)
-            cli += 'shell /usr/bin/cli --quiet '
-            cli += '--user %s:%s --no-login-prompt ' % (username, password)
-            cli += 'switch-config-reset'
+        if not out:
+            cli = 'sshpass -p admin ssh %s@%s ' % (username, ip)
+            cli += '-- --quiet --script-password '
+            cli += 'switch-setup-modify password %s ' % password
+            cli += 'eula-accepted true'
 
             cli = shlex.split(cli)
             module.run_command(cli)
@@ -133,12 +133,12 @@ def main():
 
             result.append({
                 'switch': switch_list[count],
-                'output': 'Switch config reset completed successfully'
+                'output': 'Eula accepted'
             })
         else:
             result.append({
                 'switch': switch_list[count],
-                'output': 'Switch has been already reset'
+                'output': 'Eula already accepted'
             })
 
         count += 1
@@ -146,10 +146,10 @@ def main():
     # Exit the module and return the required JSON
     module.exit_json(
         unreachable=False,
-        msg='Switch config reset completed successfully',
+        msg='Eula accepted successfully',
         summary=result,
         exception='',
-        task='Switch config reset',
+        task='Accept eula',
         failed=False,
         changed=True if True in CHANGED_FLAG else False
     )
