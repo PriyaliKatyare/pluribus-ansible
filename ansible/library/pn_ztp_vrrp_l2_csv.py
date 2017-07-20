@@ -350,9 +350,9 @@ def configure_vrrp_l2(module, csv_data, vrrp_id):
             continue
         else:
             elements = row.split(',')
-            vrrp_ip = elements[0]
-            vlan_id = elements[1]
-            active_switch = str(elements[2])
+            vrrp_ip = elements[0].strip()
+            vlan_id = elements[1].strip()
+            active_switch = elements[2].strip()
             output += configure_vrrp(module, vrrp_id, vrrp_ip, active_switch,
                                      vlan_id)
 

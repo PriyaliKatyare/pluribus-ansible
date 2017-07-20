@@ -200,7 +200,7 @@ def create_vrouter(module, switch, vrrp_id, vnet_name):
     """
     global CHANGED_FLAG
     output = ''
-    vrouter_name = str(switch) + '-vrouter'
+    vrouter_name = switch + '-vrouter'
     cli = pn_cli(module)
     cli += ' switch ' + switch
     clicopy = cli
@@ -346,7 +346,8 @@ def create_vrouter_without_vrrp(module, switch, vnet_name):
     :return: String describing if vrouter got created or if it already exists.
     """
     global CHANGED_FLAG
-    vrouter_name = str(switch) + '-vrouter'
+    vrouter_name = switch + '-vrouter'
+
     cli = pn_cli(module)
     cli += ' switch ' + switch
     clicopy = cli
@@ -480,13 +481,13 @@ def configure_vrrp(module, csv_data):
     for row in csv_data_list:
         elements = row.split(',')
         switch_list = []
-        vlan_id = elements[0]
-        vrrp_ip = elements[1]
-        leaf_switch_1 = str(elements[2])
+        vlan_id = elements[0].strip()
+        vrrp_ip = elements[1].strip()
+        leaf_switch_1 = elements[2].strip()
         if len(elements) > 5:
-            leaf_switch_2 = str(elements[3])
-            vrrp_id = elements[4]
-            active_switch = str(elements[5])
+            leaf_switch_2 = elements[3].strip()
+            vrrp_id = elements[4].strip()
+            active_switch = elements[5].strip()
             switch_list.append(leaf_switch_1)
             switch_list.append(leaf_switch_2)
             output += configure_vrrp_for_clustered_switches(module, vrrp_id,
