@@ -14,12 +14,6 @@
         pn_clipassword: "{{ PASSWORD }}"           # Cli password (value comes from cli_vault.yml).
         pn_host_list: "{{ groups['all'] }}"        # List of all switches
         pn_host_ips: "{{ groups['all'] | map('extract', hostvars, ['ansible_host']) | join(',') }}"  # IPs of all switches separated by comma
-      register: reset_out                          # Variable to hold/register output of the above tasks.
-
-    - name: Wait for nvOSd to reboot
-      pause:
-        minutes: 2
-      when: reset_out.changed
 
 
 # This task is to accept eula.
@@ -36,9 +30,10 @@
       pn_eula_accept:
         pn_cliusername: "{{ USERNAME }}"               # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"               # Cli password (value comes from cli_vault.yml).
-        pn_host_list: "{{ groups['all'] }}"            # List of all switches
-        pn_host_ips: "{{ groups['all'] | map('extract', hostvars, ['ansible_host']) | join(',') }}"   # IPs of all switches separated by comma
-
+        pn_spine_list: "{{ groups['spine'] | default([]) }}"         # List of all spine switches
+        pn_leaf_list: "{{ groups['leaf'] | default([])}}"            # List of all leaf switches
+        pn_leaf_ips: "{{ groups['leaf'] | default('') | map('extract', hostvars, ['ansible_host']) | join(',') }}" 
+        pn_spine_ips: "{{ groups['spine'] | default('') | map('extract', hostvars, ['ansible_host']) | join(',') }}"
 
 # This task is to configure initial ZTP setup on all switches.
 # It uses pn_fabric_creation.py module from library/ directory.

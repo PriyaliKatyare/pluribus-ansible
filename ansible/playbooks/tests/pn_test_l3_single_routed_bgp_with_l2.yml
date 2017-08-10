@@ -14,12 +14,6 @@
         pn_clipassword: "{{ PASSWORD }}"           # Cli password (value comes from cli_vault.yml).
         pn_host_list: "{{ groups['all'] }}"        # List of all switches
         pn_host_ips: "{{ groups['all'] | map('extract', hostvars, ['ansible_host']) | join(',') }}"  # IPs of all switches separated by comma
-      register: reset_out                          # Variable to hold/register output of the above tasks.
-
-    - name: Wait for nvOSd to reboot
-      pause:
-        minutes: 2
-      when: reset_out.changed
 
 
 # This task is to accept eula.
@@ -36,8 +30,8 @@
       pn_eula_accept:
         pn_cliusername: "{{ USERNAME }}"               # Cli username (value comes from cli_vault.yml).
         pn_clipassword: "{{ PASSWORD }}"               # Cli password (value comes from cli_vault.yml).
-        pn_host_list: "{{ groups['all'] }}"            # List of all switches
-        pn_host_ips: "{{ groups['all'] | map('extract', hostvars, ['ansible_host']) | join(',') }}"   # IPs of all switches separated by comma
+        pn_dlink_switch_list: "{{ groups['all'] }}"            # List of all switches
+        pn_dlink_switch_ips: "{{ groups['all'] | map('extract', hostvars, ['ansible_host']) | join(',') }}"   # IPs of all switches separated by comma
 
 
 # This play is to configure fabric

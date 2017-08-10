@@ -33,6 +33,7 @@ import traceback
 import fcntl
 import sys
 import re
+import time
 
 from termios import tcflush, TCIFLUSH
 from binascii import hexlify
@@ -270,6 +271,9 @@ class Connection(ConnectionBase):
             msg = str(e)
             raise AnsibleConnectionFailure(msg)
 
+        # Sleep for 1s here. as role-modify takes some time to finish
+        time.sleep(1)
+
         return ssh
 
     def exec_command(self, cmd, in_data=None, sudoable=True):
@@ -310,7 +314,7 @@ class Connection(ConnectionBase):
         become_output = b''
 
         try:
-            chan.exec_command("shell %s" % cmd)
+            chan.exec_command("--quiet shell %s" % cmd)
             if self._play_context.prompt:
                 passprompt = False
                 become_sucess = False
